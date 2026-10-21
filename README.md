@@ -37,6 +37,14 @@ Search thousands of remotes online, try them before importing, learn the ones th
 **Library**
 - Favourites, duplicate, rename, reorder and edit buttons. Import by drag-and-drop or ⌘O (`.ir`, `.csv`, `.json`), and export any remote as a Flipper Zero `.ir` file.
 
+## Download
+
+Get the latest build from [**GitHub Releases**](https://github.com/thecaticorn01/MacOS-IR/releases/latest). It's a universal app (Apple silicon and Intel) for macOS 26 or later, packaged as a `.dmg` and a `.zip`.
+
+Release builds are signed ad hoc but not notarized, so macOS asks for confirmation the first time: open **System Settings → Privacy & Security** and click **Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/MacIR.app`.
+
+New releases are produced by `.github/workflows/release.yml` whenever a `v*` tag is pushed, or manually from the Actions tab.
+
 ## Requirements
 
 - macOS 26 (Tahoe) or later. Built for the latest SDK, including macOS 27 "Golden Gate".
