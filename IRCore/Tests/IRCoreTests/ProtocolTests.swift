@@ -118,3 +118,27 @@ import Testing
         #expect(ButtonRole(buttonName: "Something odd") == .other)
     }
 }
+
+@Suite struct RemoteLayoutTests {
+    private func buttons(_ names: [String]) -> [IRButton] {
+        names.map { IRButton(name: $0, signal: .raw(RawSignal(timings: [1, 1]))) }
+    }
+
+    @Test func placesButtonsIntoZones() {
+        let layout = RemoteLayout(buttons: buttons(["Power", "Vol_up", "Vol_dn", "Mute", "Up", "Down", "Ok", "1", "2", "3", "Play", "Rew", "Netflix", "Power"]))
+        #expect(layout.power?.name == "Power")
+        #expect(layout.hasVolume && layout.hasDirectionalPad && layout.hasNumberPad)
+        #expect(layout.transport.map(\.name) == ["Rew", "Play"])
+        // The duplicate power button and unknown buttons fall through to `others`.
+        #expect(layout.others.map(\.name) == ["Netflix", "Power"])
+    }
+
+    @Test func templatesUseRecognisableNames() {
+        for category in DeviceCategory.allCases {
+            let names = LearningTemplate.buttonNames(for: category)
+            #expect(!names.isEmpty)
+        }
+        let tv = RemoteLayout(buttons: buttons(LearningTemplate.buttonNames(for: .tv)))
+        #expect(tv.others.isEmpty)
+    }
+}

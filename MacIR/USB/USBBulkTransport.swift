@@ -14,7 +14,7 @@ final class USBBulkTransport: BulkTransport {
     }
 
     func read(maxLength: Int, timeout: TimeInterval) throws -> [UInt8]? {
-        let data = try connection.read(maxLength: maxLength, timeout: timeout)
+        let data = try connection.read(maxLength: UInt(maxLength), timeout: timeout)
         return data.isEmpty ? nil : [UInt8](data)
     }
 
