@@ -168,7 +168,7 @@ jobs:
             core/build/reports
 
   launch-test:
-    name: Launch test (API ${{ matrix.api }}, ${{ matrix.gpu }})
+    name: Launch test (API ${{ matrix.api }})
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -176,11 +176,7 @@ jobs:
       fail-fast: false
       matrix:
         # 26 = Android 8.0 (minSdk), 37.0 = Android 17 (targetSdk).
-        include:
-          - {api: "26", gpu: swiftshader_indirect, flags: ""}
-          - {api: "37.0", gpu: swangle_indirect, flags: ""}
-          - {api: "37.0", gpu: guest, flags: ""}
-          - {api: "37.0", gpu: swiftshader_indirect, flags: "-feature -ReadColorBufferDma"}
+        api: ["26", "37.0"]
     env:
       PACKAGE: com.thecaticorn01.ircontroller
       IMAGE: system-images;android-${{ matrix.api }};google_apis;x86_64
@@ -224,7 +220,7 @@ jobs:
           "$EMULATOR" -list-avds
 
           nohup "$EMULATOR" -avd launch-test -no-window -no-audio -no-boot-anim -no-snapshot \
-            -accel on -gpu ${{ matrix.gpu }} ${{ matrix.flags }} -memory 4096 -cores 4 -partition-size 8192 -no-metrics \
+            -accel on -gpu swiftshader_indirect -memory 4096 -cores 4 -partition-size 8192 -no-metrics \
             -camera-back none -camera-front none > emulator.log 2>&1 &
           EMULATOR_PID=$!
           echo "EMULATOR_PID=$EMULATOR_PID" >> "$GITHUB_ENV"
@@ -256,6 +252,22 @@ jobs:
               sleep 2
             done
           done
+          # Use 3-button navigation. With gesture navigation, SystemUI samples the screen
+          # under the home handle to pick its colour, and on the Android 17 emulator that
+          # readback aborts surfaceflinger (!hasReadColorBufferDma) as soon as an
+          # edge-to-edge app is in front, restarting the UI and killing the app. This is
+          # an emulator graphics bug; real devices aren't affected. (No-op before API 29.)
+          if [[ "$("$ADB" shell getprop ro.build.version.sdk | tr -d '\r')" -ge 29 ]]; then
+            for i in $(seq 1 15); do
+              "$ADB" shell cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.threebutton > /dev/null 2>&1 && break
+              sleep 2
+            done
+            for i in $(seq 1 15); do
+              [[ "$("$ADB" shell settings get secure navigation_mode 2>/dev/null | tr -d '\r')" == "0" ]] && break
+              sleep 2
+            done
+            echo "Navigation mode: $("$ADB" shell settings get secure navigation_mode | tr -d '\r') (0 = 3-button)"
+          fi
           "$ADB" shell df -h /data || true
           echo "Booted Android $("$ADB" shell getprop ro.build.version.release | tr -d '\r') (API $("$ADB" shell getprop ro.build.version.sdk | tr -d '\r'))"
       - name: Install and launch
@@ -294,7 +306,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-launch-api-${{ matrix.api }}-${{ matrix.gpu }}${{ inputs.version != '' && '-release' || '' }}
+          name: android-launch-api-${{ matrix.api }}${{ inputs.version != '' && '-release' || '' }}
           path: |
             launch
             emulator.log
