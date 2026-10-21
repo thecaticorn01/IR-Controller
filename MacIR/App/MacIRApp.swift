@@ -3,34 +3,70 @@ import IRCore
 
 @main
 struct MacIRApp: App {
-    @State private var monitorHolder = MonitorHolder()
+    @State private var library = LibraryStore.shared
+    @State private var blaster = BlasterManager.shared
+    @State private var database = DatabaseStore.shared
+    @State private var navigation = AppNavigation.shared
+    @AppStorage(SettingsKey.showMenuBarExtra) private var showMenuBarExtra = true
+
+    init() {
+        BlasterManager.shared.start()
+    }
 
     var body: some Scene {
-        WindowGroup {
-            Text("Devices: \(monitorHolder.devices.count)")
-                .frame(minWidth: 400, minHeight: 300)
-                .task { monitorHolder.start() }
+        Window("MacIR", id: "main") {
+            ContentView()
+                .environment(library)
+                .environment(blaster)
+                .environment(database)
+                .environment(navigation)
+                .frame(minWidth: 900, minHeight: 600)
+                .task { await database.refreshIfNeeded() }
         }
+        .defaultSize(width: 1200, height: 780)
+        .commands {
+            AppCommands(navigation: navigation, blaster: blaster)
+        }
+
+        Settings {
+            SettingsView()
+                .environment(library)
+                .environment(blaster)
+                .environment(database)
+                .environment(navigation)
+        }
+
+        MenuBarExtra("MacIR", systemImage: "av.remote", isInserted: $showMenuBarExtra) {
+            MenuBarRemoteView()
+                .environment(library)
+                .environment(blaster)
+                .environment(database)
+                .environment(navigation)
+        }
+        .menuBarExtraStyle(.window)
     }
 }
 
-@MainActor @Observable
-final class MonitorHolder {
-    var devices: [USBDeviceInfo] = []
-    private var monitor: USBDeviceMonitor?
+/// Menu bar commands.
+struct AppCommands: Commands {
+    let navigation: AppNavigation
+    let blaster: BlasterManager
 
-    func start() {
-        let monitor = USBDeviceMonitor(
-            vendorID: ElkSmartModel.vendorID,
-            productIDs: ElkSmartModel.knownProductIDs.map { NSNumber(value: $0) }
-        ) { [weak self] devices in
-            MainActor.assumeIsolated { self?.devices = devices }
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Remote…") { navigation.sheet = .newRemote }
+                .keyboardShortcut("n")
+            Button("Learn New Remote") { navigation.selection = .learn }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+            Button("Browse Databases") { navigation.selection = .browse }
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+            Divider()
+            Button("Import…") { navigation.isImporting = true }
+                .keyboardShortcut("o")
         }
-        monitor.start()
-        self.monitor = monitor
-        if let first = devices.first, let connection = try? USBBulkConnection.open(registryID: first.registryID) {
-            let driver = ElkSmartDriver(transport: USBBulkTransport(connection: connection))
-            _ = try? driver.identify()
+        CommandMenu("Blaster") {
+            Button("Reconnect IR Blaster") { blaster.reconnect() }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
         }
     }
 }
