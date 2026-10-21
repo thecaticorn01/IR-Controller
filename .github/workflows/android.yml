@@ -168,7 +168,7 @@ jobs:
             core/build/reports
 
   launch-test:
-    name: Launch test (API ${{ matrix.api }})
+    name: Launch test (API ${{ matrix.api }}, ${{ matrix.gpu }})
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -176,7 +176,11 @@ jobs:
       fail-fast: false
       matrix:
         # 26 = Android 8.0 (minSdk), 37.0 = Android 17 (targetSdk).
-        api: ["26", "37.0"]
+        include:
+          - {api: "26", gpu: swiftshader_indirect, flags: ""}
+          - {api: "37.0", gpu: swangle_indirect, flags: ""}
+          - {api: "37.0", gpu: guest, flags: ""}
+          - {api: "37.0", gpu: swiftshader_indirect, flags: "-feature -ReadColorBufferDma"}
     env:
       PACKAGE: com.thecaticorn01.ircontroller
       IMAGE: system-images;android-${{ matrix.api }};google_apis;x86_64
@@ -220,7 +224,7 @@ jobs:
           "$EMULATOR" -list-avds
 
           nohup "$EMULATOR" -avd launch-test -no-window -no-audio -no-boot-anim -no-snapshot \
-            -accel on -gpu swiftshader_indirect -memory 4096 -cores 4 -partition-size 8192 -no-metrics \
+            -accel on -gpu ${{ matrix.gpu }} ${{ matrix.flags }} -memory 4096 -cores 4 -partition-size 8192 -no-metrics \
             -camera-back none -camera-front none > emulator.log 2>&1 &
           EMULATOR_PID=$!
           echo "EMULATOR_PID=$EMULATOR_PID" >> "$GITHUB_ENV"
@@ -271,10 +275,13 @@ jobs:
           "$ADB" logcat -c || true
           "$ADB" shell am start -W -n "$PACKAGE/.MainActivity" | tee launch/am-start.txt
           sleep 20
-          "$ADB" exec-out screencap -p > launch/screen.png || true
+          RUNNING=1; "$ADB" shell pidof "$PACKAGE" > /dev/null || RUNNING=0
           "$ADB" logcat -d > launch/logcat.txt
           "$ADB" logcat -d -b crash > launch/crash.txt || true
-          if [[ -s launch/crash.txt ]] || grep -q "FATAL EXCEPTION" launch/logcat.txt || ! "$ADB" shell pidof "$PACKAGE" > /dev/null; then
+          "$ADB" exec-out screencap -p > launch/screen.png || true
+          # Only the app's own crashes count: the emulator's system processes can
+          # crash on their own, which shows up here as the app no longer running.
+          if [[ $RUNNING == 0 ]] || grep -q "$PACKAGE" launch/crash.txt; then
             echo "::error::IR Controller crashed or exited after launch on API ${{ matrix.api }}"
             echo "----- crash buffer -----"
             cat launch/crash.txt
@@ -287,7 +294,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-launch-api-${{ matrix.api }}${{ inputs.version != '' && '-release' || '' }}
+          name: android-launch-api-${{ matrix.api }}-${{ matrix.gpu }}${{ inputs.version != '' && '-release' || '' }}
           path: |
             launch
             emulator.log
