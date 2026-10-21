@@ -239,9 +239,14 @@ jobs:
             "$ADB" shell pm path android > /dev/null 2>&1 && break
             sleep 2
           done
-          "$ADB" shell settings put global window_animation_scale 0
-          "$ADB" shell settings put global transition_animation_scale 0
-          "$ADB" shell settings put global animator_duration_scale 0
+          # Turn off animations. System services can still be starting right after
+          # boot, so retry, and don't fail the job if a setting can't be written.
+          for key in window_animation_scale transition_animation_scale animator_duration_scale; do
+            for i in $(seq 1 15); do
+              "$ADB" shell settings put global "$key" 0 > /dev/null 2>&1 && break
+              sleep 2
+            done
+          done
           echo "Booted Android $("$ADB" shell getprop ro.build.version.release | tr -d '\r') (API $("$ADB" shell getprop ro.build.version.sdk | tr -d '\r'))"
       - name: Install and launch
         timeout-minutes: 10
