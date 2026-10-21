@@ -15,6 +15,11 @@ struct ContentView: View {
         } detail: {
             detail
         }
+        .task {
+            if let message = library.loadError {
+                navigation.alert = AlertMessage(title: "Your Remotes Couldn’t Be Loaded", message: message)
+            }
+        }
         .sheet(item: $navigation.sheet) { sheet in
             sheetView(sheet)
         }

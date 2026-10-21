@@ -224,7 +224,7 @@ static void ELKAppendTree(NSMutableString *report, io_registry_entry_t entry, in
         NSInteger value = ELKIntegerProperty(entry, (__bridge CFStringRef)key);
         if (value >= 0) [line appendFormat:@" %@=%ld", key, (long)value];
     }
-    for (NSString *key in @[@"IOCalloutDevice", @"IOTTYBaseName", @"CFBundleIdentifier"]) {
+    for (NSString *key in @[@"IOCalloutDevice", @"IOTTYBaseName", @"CFBundleIdentifier", @"IOUserClientCreator"]) {
         NSString *value = ELKStringProperty(entry, (__bridge CFStringRef)key);
         if (value != nil) [line appendFormat:@" %@=%@", key, value];
     }
@@ -306,6 +306,38 @@ static io_service_t ELKCopyInterfaceService(io_service_t device) {
     return found;
 }
 
+/// "IOUSBHostErrorDomain 0xe00002c9: Failed to create IOUSBHostInterface. (Failed [super init]) ← …"
+static NSString *ELKDescribeError(NSError *error) {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (NSError *current = error; current != nil && parts.count < 4; current = current.userInfo[NSUnderlyingErrorKey]) {
+        NSMutableString *part = [NSMutableString stringWithFormat:@"%@ 0x%08x: %@", current.domain, (unsigned int)current.code, current.localizedDescription];
+        if (current.localizedFailureReason.length > 0) {
+            [part appendFormat:@" (%@)", current.localizedFailureReason];
+        }
+        [parts addObject:part];
+    }
+    return [parts componentsJoinedByString:@" ← "];
+}
+
+/// "pid 123, ProcessName" for every user client already attached to a service.
+static NSArray<NSString *> *ELKUserClientOwners(io_service_t service) {
+    NSMutableArray<NSString *> *owners = [NSMutableArray array];
+    io_iterator_t children = IO_OBJECT_NULL;
+    if (IORegistryEntryGetChildIterator(service, kIOServicePlane, &children) != KERN_SUCCESS) {
+        return owners;
+    }
+    io_registry_entry_t child;
+    while ((child = IOIteratorNext(children)) != IO_OBJECT_NULL) {
+        NSString *creator = ELKStringProperty(child, CFSTR("IOUserClientCreator"));
+        if (creator != nil) {
+            [owners addObject:creator];
+        }
+        IOObjectRelease(child);
+    }
+    IOObjectRelease(children);
+    return owners;
+}
+
 /// Finds the serial "callout" device (/dev/cu.*) published for a device by a CDC driver.
 static NSString *ELKCalloutPath(io_service_t device) {
     io_iterator_t iterator = IO_OBJECT_NULL;
@@ -356,6 +388,7 @@ static io_service_t ELKCopyServiceForRegistryID(uint64_t registryID) {
     }
 
     NSError *openError = nil;
+    NSArray<NSString *> *otherOwners = @[];
     io_service_t interfaceService = ELKCopyInterfaceService(device);
     if (interfaceService != IO_OBJECT_NULL) {
         _interface = [[IOUSBHostInterface alloc] initWithIOService:interfaceService
@@ -363,6 +396,14 @@ static io_service_t ELKCopyServiceForRegistryID(uint64_t registryID) {
                                                              queue:nil
                                                              error:&openError
                                                    interestHandler:nil];
+        if (_interface == nil) {
+            // Note who else has the interface open, excluding this process.
+            NSString *me = [NSString stringWithFormat:@"pid %d,", getpid()];
+            NSPredicate *notMe = [NSPredicate predicateWithBlock:^BOOL(NSString *owner, NSDictionary *bindings) {
+                return ![owner hasPrefix:me];
+            }];
+            otherOwners = [ELKUserClientOwners(interfaceService) filteredArrayUsingPredicate:notMe];
+        }
         IOObjectRelease(interfaceService);
     }
 
@@ -411,13 +452,18 @@ static io_service_t ELKCopyServiceForRegistryID(uint64_t registryID) {
 
     if (_interface == nil) {
         if (error) {
-            if (ELKIsIOReturn(openError, kIOReturnExclusiveAccess)) {
+            if (otherOwners.count > 0) {
+                *error = ELKMakeError(ELKUSBErrorExclusiveAccess,
+                                      [NSString stringWithFormat:@"The IR blaster is in use by another program (%@). Quit it, then unplug and reconnect the blaster.",
+                                       [otherOwners componentsJoinedByString:@"; "]],
+                                      openError);
+            } else if (ELKIsIOReturn(openError, kIOReturnExclusiveAccess)) {
                 *error = ELKMakeError(ELKUSBErrorExclusiveAccess,
                                       @"Another app or driver is using the IR blaster. Quit other remote-control apps, then unplug and reconnect the blaster.",
                                       openError);
             } else if (openError != nil) {
                 *error = ELKMakeError(ELKUSBErrorNoInterface,
-                                      [NSString stringWithFormat:@"Couldn’t open the IR blaster (%@).", openError.localizedDescription],
+                                      [NSString stringWithFormat:@"Couldn’t open the IR blaster. %@", ELKDescribeError(openError)],
                                       openError);
             } else {
                 *error = ELKMakeError(ELKUSBErrorNoInterface, @"The IR blaster has no usable USB interface yet. Try reconnecting it.", nil);

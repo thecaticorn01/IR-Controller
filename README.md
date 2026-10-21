@@ -88,7 +88,9 @@ MacIR/                      The macOS app (SwiftUI, Liquid Glass)
 
 ## How the blaster works
 
-ELK Smart dongles (sold under ELK Smart / Ocrustar / ZaZa Remote) show up as a single USB interface with one bulk OUT and one bulk IN endpoint. MacIR talks to them directly from user space with Apple's **IOUSBHost** framework. No driver or kernel extension is needed, and the app runs in the App Sandbox with the `com.apple.security.device.usb` entitlement.
+ELK Smart dongles (sold under ELK Smart / Ocrustar / ZaZa Remote) show up as a single USB interface with one bulk OUT and one bulk IN endpoint. MacIR talks to them directly from user space with Apple's **IOUSBHost** framework. No driver or kernel extension is needed.
+
+MacIR deliberately runs **without the App Sandbox** but with the hardened runtime. Recent macOS releases deny sandboxed apps the `iokit-open-service IOUSBHostInterface` operation, even when they have the USB entitlement, so a sandboxed build can see the dongle but can't open it.
 
 Because the dongle reports a communications-class (CDC) interface, macOS may attach its own serial driver to it. When that happens, MacIR uses the serial port the driver publishes (`/dev/cu.*`), which carries the same bulk endpoints (entitlement `com.apple.security.device.serial`). As a last resort it tries to capture the device from the driver, which only works with elevated privileges. Settings → IR Blaster shows which transport is in use.
 
@@ -104,7 +106,8 @@ The wire protocol was reverse-engineered by Přemysl Eric Janouch in [`elksmart-
 ## Troubleshooting
 
 - **"No IR Blaster"**: plug the dongle straight into a USB-C port. Some dongles are picky about hubs and adapters.
-- **"Another app or driver is using the IR blaster"**: quit other remote-control apps (and anything else that might hold its serial port open), then reconnect the dongle.
+- **"The IR blaster is in use by another program"**: the message names the process (pid and name). Quit it, then reconnect the dongle.
+- **Anything else**: click the blaster status at the bottom of the sidebar → **Copy Diagnostic Report**, and include the report in an issue. It lists the USB devices MacIR sees, the macOS driver tree below the dongle, and which process owns any open connection to it.
 - **Learning times out**: hold the remote about 1 cm from the end of the dongle. The EKX4S's receiver is known to be temperamental, so retrying usually helps. The dongle doesn't measure carrier frequency; 38 kHz (configurable in Settings) suits nearly all devices.
 - **A code works only sometimes**: raise *Extra repeats per press* in Settings → General.
 - **Database won't load**: GitHub's anonymous API allows 60 requests an hour. MacIR falls back to jsDelivr, and you can add a GitHub token in Settings → Databases.

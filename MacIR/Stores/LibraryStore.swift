@@ -21,7 +21,27 @@ final class LibraryStore {
 
     init(fileURL: URL = URL.applicationSupportDirectory.appending(path: "MacIR/library.json")) {
         self.fileURL = fileURL
+        migrateFromSandboxContainer()
         load()
+    }
+
+    /// MacIR 1.0.0–1.0.1 were sandboxed and kept the library inside their container.
+    /// Bring it over the first time an unsandboxed build runs.
+    private func migrateFromSandboxContainer() {
+        let fileManager = FileManager.default
+        guard !fileManager.fileExists(atPath: fileURL.path) else { return }
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.thecaticorn01.MacIR"
+        let legacy = fileManager.homeDirectoryForCurrentUser
+            .appending(path: "Library/Containers/\(bundleID)/Data/Library/Application Support/MacIR/library.json")
+        // When the app itself runs sandboxed, its own Application Support is that path already.
+        guard legacy.standardizedFileURL != fileURL.standardizedFileURL,
+              fileManager.fileExists(atPath: legacy.path) else { return }
+        do {
+            try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fileManager.copyItem(at: legacy, to: fileURL)
+        } catch {
+            loadError = "Couldn’t move your remotes from the previous version: \(error.localizedDescription)"
+        }
     }
 
     var favorites: [IRRemote] { remotes.filter(\.isFavorite) }
