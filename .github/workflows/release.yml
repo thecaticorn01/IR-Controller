@@ -1,0 +1,150 @@
+name: Release
+
+# Builds every platform's app and publishes them together as one GitHub release.
+#
+# Start a release either by pushing a tag `vMAJOR.MINOR.PATCH` (optionally with a
+# pre-release suffix such as `v1.1.0-beta.1`) on `main`, or from Actions →
+# Release → Run workflow with the version number. The release and its tag are
+# named `vX.Y.Z`; the apps' version is `X.Y.Z` (Semantic Versioning).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the v (e.g. 1.0.0 or 1.1.0-beta.1)"
+        required: true
+        type: string
+      macos_ref:
+        description: macOS branch, tag or commit to build
+        type: string
+        default: macos
+      android_ref:
+        description: Android branch, tag or commit to build
+        type: string
+        default: android
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Validate version
+        id: version
+        env:
+          RAW: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${RAW#v}"
+          # Semantic Versioning 2.0.0 (build metadata is not used for releases).
+          SEMVER='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?$'
+          if ! [[ "$VERSION" =~ $SEMVER ]]; then
+            echo "::error::'$RAW' is not a Semantic Version like 1.2.3 or 1.3.0-beta.1"
+            exit 1
+          fi
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::error::Release v$VERSION already exists"
+            exit 1
+          fi
+          PRERELEASE=false
+          [[ "$VERSION" == *-* ]] && PRERELEASE=true
+          {
+            echo "version=$VERSION"
+            echo "tag=v$VERSION"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VERSION (pre-release: $PRERELEASE)"
+
+  macos:
+    name: macOS
+    needs: prepare
+    uses: ./.github/workflows/macos.yml
+    with:
+      ref: ${{ inputs.macos_ref || 'macos' }}
+      version: ${{ needs.prepare.outputs.version }}
+
+  android:
+    name: Android
+    needs: prepare
+    uses: ./.github/workflows/android.yml
+    with:
+      ref: ${{ inputs.android_ref || 'android' }}
+      version: ${{ needs.prepare.outputs.version }}
+    secrets:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+  publish:
+    name: Publish release
+    needs: [prepare, macos, android]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      MACOS_COMMIT: ${{ needs.macos.outputs.commit }}
+      ANDROID_COMMIT: ${{ needs.android.outputs.commit }}
+      ANDROID_SIGNING: ${{ needs.android.outputs.signing }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum IR-Controller-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Release notes
+        run: |
+          if [[ "$ANDROID_SIGNING" == "release-key" ]]; then
+            ANDROID_NOTE="The APK is signed with the project's release key, so future releases install as updates."
+          else
+            ANDROID_NOTE="This APK is signed with a temporary key. To install a later release, uninstall this one first (export your library from Settings to keep your remotes)."
+          fi
+          : > notes.md
+          if [[ -f ".github/changelog/$VERSION.md" ]]; then
+            cat ".github/changelog/$VERSION.md" >> notes.md
+            echo >> notes.md
+          fi
+          sed -e "s|__VERSION__|$VERSION|g" \
+              -e "s|__ANDROID_SIGNING_NOTE__|$ANDROID_NOTE|g" \
+              .github/release-notes.md >> notes.md
+          {
+            echo
+            echo "### Built from"
+            echo "- macOS: [\`${MACOS_COMMIT::7}\`](https://github.com/$GITHUB_REPOSITORY/commit/$MACOS_COMMIT) on \`macos\`"
+            echo "- Android: [\`${ANDROID_COMMIT::7}\`](https://github.com/$GITHUB_REPOSITORY/commit/$ANDROID_COMMIT) on \`android\`"
+            echo
+            echo "### Checksums (SHA-256)"
+            echo '```'
+            cat dist/SHA256SUMS.txt
+            echo '```'
+          } >> notes.md
+          cat notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FLAGS=()
+          [[ "${{ needs.prepare.outputs.prerelease }}" == "true" ]] && FLAGS+=(--prerelease)
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes-file notes.md \
+            --target "$GITHUB_SHA" \
+            "${FLAGS[@]}"

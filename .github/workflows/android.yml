@@ -1,0 +1,166 @@
+name: Android
+
+# Reusable workflow that builds the Android app from the `android` branch.
+#
+# CI mode (no `version`): unit, protocol and screenshot tests, lint, and debug +
+# release APKs.
+# Release mode (`version` set): tests and lint, then a release APK stamped with
+# the version, uploaded as `release-android`. When the caller passes the
+# ANDROID_KEYSTORE_* secrets the APK is signed with that key; otherwise with a
+# throwaway debug key (fine for sideloading, but updates then need a reinstall).
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch, tag or commit of the Android app to build.
+        type: string
+        default: android
+      version:
+        description: Semantic version for a release build (e.g. 1.2.3); empty for CI.
+        type: string
+        default: ""
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
+    outputs:
+      commit:
+        description: Commit that was built.
+        value: ${{ jobs.build.outputs.commit }}
+      signing:
+        description: "`release-key` or `debug-key`."
+        value: ${{ jobs.build.outputs.signing }}
+
+jobs:
+  build:
+    name: ${{ inputs.version == '' && 'Build, test and lint' || 'Release build' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+      signing: ${{ steps.signing.outputs.signing }}
+    env:
+      VERSION: ${{ inputs.version }}
+      BUILD_TOOLS: "37.0.0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Source
+        id: source
+        run: |
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Building $(git rev-parse --short HEAD) from ${{ inputs.ref }}"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Android 17 SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;$BUILD_TOOLS"
+      - name: Unit, protocol and UI screenshot tests
+        run: ./gradlew test --console=plain
+      - name: Lint
+        run: ./gradlew lint --console=plain
+
+      - name: Build APKs
+        if: inputs.version == ''
+        run: ./gradlew assembleDebug assembleRelease --console=plain
+
+      - name: Version code
+        if: inputs.version != ''
+        run: |
+          # versionCode = MMmmpp·100 + (pre-release number, or 99 for a final release),
+          # so 1.2.3 → 1020399 and 1.3.0-beta.2 → 1030002 (lower than 1.3.0 → 1030099).
+          if ! [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z.-]+))?$ ]]; then
+            echo "::error::'$VERSION' is not a Semantic Version"; exit 1
+          fi
+          MAJOR=${BASH_REMATCH[1]} MINOR=${BASH_REMATCH[2]} PATCH=${BASH_REMATCH[3]} PRE=${BASH_REMATCH[5]}
+          if (( MINOR > 99 || PATCH > 99 || MAJOR > 2099 )); then
+            echo "::error::Android versionCode supports minor/patch ≤ 99 and major ≤ 2099"; exit 1
+          fi
+          SUFFIX=99
+          if [[ -n "$PRE" ]]; then
+            NUMBER=$(grep -oE '[0-9]+' <<< "$PRE" | tail -1 || true)
+            NUMBER=$(( 10#${NUMBER:-0} ))
+            SUFFIX=$(( NUMBER > 98 ? 98 : NUMBER ))
+          fi
+          CODE=$(( ((MAJOR * 100 + MINOR) * 100 + PATCH) * 100 + SUFFIX ))
+          echo "VERSION_CODE=$CODE" >> "$GITHUB_ENV"
+          echo "versionName $VERSION, versionCode $CODE"
+
+      - name: Signing key
+        id: signing
+        if: inputs.version != ''
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$KEYSTORE_BASE64" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" ]]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            {
+              echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore"
+              echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
+              echo "ANDROID_KEY_PASSWORD=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+            } >> "$GITHUB_ENV"
+            echo "signing=release-key" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No ANDROID_KEYSTORE_* secrets; the release APK is signed with a debug key."
+            echo "signing=debug-key" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release APK
+        if: inputs.version != ''
+        run: ./gradlew assembleRelease -PversionName="$VERSION" -PversionCode="$VERSION_CODE" --console=plain
+
+      - name: Verify and package
+        if: inputs.version != ''
+        run: |
+          TOOLS="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
+          APK=app/build/outputs/apk/release/app-release.apk
+          BADGING=$("$TOOLS/aapt2" dump badging "$APK" | head -1)
+          echo "$BADGING"
+          grep -q "versionName='$VERSION'" <<< "$BADGING" || { echo "::error::versionName mismatch"; exit 1; }
+          grep -q "versionCode='$VERSION_CODE'" <<< "$BADGING" || { echo "::error::versionCode mismatch"; exit 1; }
+          "$TOOLS/apksigner" verify --print-certs "$APK"
+          mkdir -p dist
+          cp "$APK" "dist/IR-Controller-$VERSION-android.apk"
+          ls -lh dist
+
+      - name: Upload release files
+        if: inputs.version != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: dist
+          if-no-files-found: error
+      - name: Upload APKs
+        if: inputs.version == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apks
+          path: app/build/outputs/apk/**/*.apk
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-screenshots${{ inputs.version != '' && '-release' || '' }}
+          path: app/screenshots
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports${{ inputs.version != '' && '-release' || '' }}
+          path: |
+            app/build/reports
+            core/build/reports

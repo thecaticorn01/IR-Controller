@@ -1,0 +1,49 @@
+name: CI
+
+# Builds and tests every platform's app from its branch. Platform code lives on
+# its own branch (`macos`, `android`) and the workflows live only here on `main`,
+# so CI runs on changes to `main`, nightly, and on demand (Actions → CI → Run
+# workflow, optionally for one platform or a specific branch/commit).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        type: choice
+        options: [all, macos, android]
+        default: all
+      macos_ref:
+        description: macOS branch, tag or commit
+        type: string
+        default: macos
+      android_ref:
+        description: Android branch, tag or commit
+        type: string
+        default: android
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS
+    if: inputs.platform != 'android'
+    uses: ./.github/workflows/macos.yml
+    with:
+      ref: ${{ inputs.macos_ref || 'macos' }}
+
+  android:
+    name: Android
+    if: inputs.platform != 'macos'
+    uses: ./.github/workflows/android.yml
+    with:
+      ref: ${{ inputs.android_ref || 'android' }}

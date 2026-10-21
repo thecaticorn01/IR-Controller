@@ -1,0 +1,181 @@
+name: macOS
+
+# Reusable workflow that builds the macOS app from the `macos` branch.
+#
+# CI mode (no `version`): run the IRCore tests on macOS and Linux, build with
+# Xcode 26 and Xcode 27, launch the app and capture screenshots.
+# Release mode (`version` set): build a universal Release app with the latest
+# Xcode, verify and smoke-test it, and upload the .dmg/.zip as `release-macos`.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch, tag or commit of the macOS app to build.
+        type: string
+        default: macos
+      version:
+        description: Semantic version for a release build (e.g. 1.2.3); empty for CI.
+        type: string
+        default: ""
+    outputs:
+      commit:
+        description: Commit that was built in release mode.
+        value: ${{ jobs.release.outputs.commit }}
+
+env:
+  APP_NAME: IR Controller
+
+jobs:
+  core-linux:
+    name: IRCore tests (Linux)
+    if: inputs.version == ''
+    runs-on: ubuntu-latest
+    container: swift:6.2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Run tests
+        run: swift test --package-path IRCore
+
+  build:
+    name: Build (${{ matrix.runner }})
+    if: inputs.version == ''
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-26: Xcode 26 / macOS 26 SDK. xcode-27: Xcode 27 / macOS 27 "Golden Gate" SDK.
+        runner: [macos-26, xcode-27]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          echo "Building $(git rev-parse --short HEAD) from ${{ inputs.ref }}"
+      - name: IRCore tests
+        run: swift test --package-path IRCore
+      - name: Build app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project IRController.xcodeproj \
+            -scheme IRController \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee xcodebuild.log | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" xcodebuild.log
+      - name: Launch smoke test and screenshots
+        run: |
+          APP="$PWD/build/Build/Products/Debug/$APP_NAME.app"
+          mkdir -p screenshots
+          for route in welcome remote browse preview learn; do
+            open -n "$APP" --stdout "$PWD/screenshots/$route.log" --stderr "$PWD/screenshots/$route.log" \
+              --args -UITestRoute "$route" -UITestDemoData YES
+            sleep 12
+            if ! pgrep -x "$APP_NAME" > /dev/null; then
+              echo "::error::$APP_NAME exited during launch ($route)"
+              cat "screenshots/$route.log"
+              exit 1
+            fi
+            screencapture -x "screenshots/$route.png" || echo "screencapture unavailable"
+            pkill -x "$APP_NAME"
+            sleep 2
+          done
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-screenshots-${{ matrix.runner }}
+          path: screenshots
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-xcodebuild-log-${{ matrix.runner }}
+          path: xcodebuild.log
+
+  release:
+    name: Release build
+    if: inputs.version != ''
+    runs-on: xcode-27
+    timeout-minutes: 45
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Source and toolchain
+        id: source
+        run: |
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # CFBundleShortVersionString must be MAJOR.MINOR.PATCH; a pre-release suffix is dropped there.
+          echo "MARKETING_VERSION=${VERSION%%-*}" >> "$GITHUB_ENV"
+          echo "APP=$PWD/build/Build/Products/Release/$APP_NAME.app" >> "$GITHUB_ENV"
+          sw_vers
+          xcodebuild -version
+      - name: IRCore tests
+        run: swift test --package-path IRCore
+      - name: Build Release (universal)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project IRController.xcodeproj \
+            -scheme IRController \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            DEVELOPMENT_TEAM= \
+            MARKETING_VERSION="$MARKETING_VERSION" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            build 2>&1 | tee xcodebuild.log | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" xcodebuild.log
+      - name: Verify app bundle
+        run: |
+          BINARY="$APP/Contents/MacOS/$APP_NAME"
+          ARCHS=$(lipo -archs "$BINARY")
+          echo "Architectures: $ARCHS"
+          [[ "$ARCHS" == *arm64* && "$ARCHS" == *x86_64* ]] || { echo "::error::Expected a universal binary"; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign --display --entitlements - "$APP"
+          plutil -p "$APP/Contents/Info.plist" | grep -E "CFBundleShortVersionString|CFBundleVersion|CFBundleIdentifier|LSMinimumSystemVersion"
+          [[ "$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")" == "$MARKETING_VERSION" ]]
+      - name: Launch smoke test
+        run: |
+          open -n "$APP"
+          sleep 12
+          pgrep -x "$APP_NAME" > /dev/null || { echo "::error::$APP_NAME did not stay running"; exit 1; }
+          pkill -x "$APP_NAME"
+      - name: Package
+        run: |
+          BASENAME="IR-Controller-$VERSION-macos"
+          mkdir -p dist dmg-staging
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/$BASENAME.zip"
+          ditto "$APP" "dmg-staging/$APP_NAME.app"
+          ln -s /Applications dmg-staging/Applications
+          hdiutil create -volname "$APP_NAME $VERSION" -srcfolder dmg-staging -ov -format UDZO "dist/$BASENAME.dmg"
+          ls -lh dist
+      - name: Upload release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: dist
+          if-no-files-found: error
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release-xcodebuild-log
+          path: xcodebuild.log
