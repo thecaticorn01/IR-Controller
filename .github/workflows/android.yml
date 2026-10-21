@@ -234,6 +234,11 @@ jobs:
             sleep 5
           done
           [[ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] || fail "Android did not finish booting within 15 minutes"
+          # Wait for the package manager to answer before installing anything.
+          for i in $(seq 1 60); do
+            "$ADB" shell pm path android > /dev/null 2>&1 && break
+            sleep 2
+          done
           "$ADB" shell settings put global window_animation_scale 0
           "$ADB" shell settings put global transition_animation_scale 0
           "$ADB" shell settings put global animator_duration_scale 0
@@ -243,7 +248,14 @@ jobs:
         run: |
           ADB="$ANDROID_HOME/platform-tools/adb"
           mkdir -p launch
-          "$ADB" install -r "$APK"
+          # Right after boot, system services can still be starting and the installer
+          # may fail with a transient system error; give it a few tries.
+          for attempt in 1 2 3 4 5 6; do
+            if "$ADB" install -r "$APK"; then break; fi
+            [[ $attempt == 6 ]] && { echo "::error::Could not install the APK"; exit 1; }
+            echo "Install attempt $attempt failed; retrying in 15 s"
+            sleep 15
+          done
           # Clearing the log can fail on a freshly booted emulator; that's harmless.
           "$ADB" logcat -c || true
           "$ADB" shell am start -W -n "$PACKAGE/.MainActivity" | tee launch/am-start.txt
