@@ -6,6 +6,13 @@
 #import "ELKUSB.h"
 
 #import <IOKit/IOKitLib.h>
+#import <IOKit/serial/IOSerialKeys.h>
+#import <errno.h>
+#import <fcntl.h>
+#import <poll.h>
+#import <sys/ioctl.h>
+#import <termios.h>
+#import <unistd.h>
 #import <IOKit/IOMessage.h>
 #import <IOUSBHost/IOUSBHost.h>
 
@@ -211,6 +218,7 @@ static void ELKMonitorCallback(void *refcon, io_iterator_t iterator) {
 #pragma mark - Connection
 
 @implementation ELKUSBConnection {
+    int _serialFD;
     IOUSBHostDevice *_capturedHostDevice;
     IOUSBHostInterface *_interface;
     IOUSBHostPipe *_outPipe;
@@ -239,6 +247,24 @@ static io_service_t ELKCopyInterfaceService(io_service_t device) {
     return found;
 }
 
+/// Finds the serial "callout" device (/dev/cu.*) published for a device by a CDC driver.
+static NSString *ELKCalloutPath(io_service_t device) {
+    io_iterator_t iterator = IO_OBJECT_NULL;
+    if (IORegistryEntryCreateIterator(device, kIOServicePlane, kIORegistryIterateRecursively, &iterator) != KERN_SUCCESS) {
+        return nil;
+    }
+    NSString *path = nil;
+    io_registry_entry_t entry;
+    while ((entry = IOIteratorNext(iterator)) != IO_OBJECT_NULL) {
+        if (path == nil) {
+            path = ELKStringProperty(entry, CFSTR(kIOCalloutDeviceKey));
+        }
+        IOObjectRelease(entry);
+    }
+    IOObjectRelease(iterator);
+    return path;
+}
+
 static io_service_t ELKCopyServiceForRegistryID(uint64_t registryID) {
     CFMutableDictionaryRef matching = IORegistryEntryIDMatching(registryID);
     if (matching == NULL) {
@@ -253,7 +279,10 @@ static io_service_t ELKCopyServiceForRegistryID(uint64_t registryID) {
 }
 
 - (instancetype)initPrivate {
-    return [super init];
+    if ((self = [super init])) {
+        _serialFD = -1;
+    }
+    return self;
 }
 
 - (void)dealloc {
@@ -276,6 +305,17 @@ static io_service_t ELKCopyServiceForRegistryID(uint64_t registryID) {
                                                              error:&openError
                                                    interestHandler:nil];
         IOObjectRelease(interfaceService);
+    }
+
+    if (_interface == nil) {
+        // macOS's CDC driver may own the dongle (it reports a communications-class
+        // interface). If it published a serial port, the port maps onto the same
+        // bulk endpoints, so talk to the dongle through it.
+        NSString *calloutPath = ELKCalloutPath(device);
+        if (calloutPath != nil && [self openSerialPort:calloutPath]) {
+            IOObjectRelease(device);
+            return YES;
+        }
     }
 
     if (_interface == nil) {
@@ -395,6 +435,81 @@ static io_service_t ELKCopyServiceForRegistryID(uint64_t registryID) {
     return YES;
 }
 
+- (BOOL)openSerialPort:(NSString *)path {
+    int fd = open(path.fileSystemRepresentation, O_RDWR | O_NOCTTY | O_NONBLOCK);
+    if (fd < 0) {
+        return NO;
+    }
+    if (ioctl(fd, TIOCEXCL) != 0) {
+        close(fd);
+        return NO;
+    }
+    struct termios options;
+    if (tcgetattr(fd, &options) != 0) {
+        close(fd);
+        return NO;
+    }
+    cfmakeraw(&options);
+    options.c_cflag |= (CLOCAL | CREAD);
+    options.c_cc[VMIN] = 0;
+    options.c_cc[VTIME] = 0;
+    cfsetspeed(&options, B115200);
+    if (tcsetattr(fd, TCSANOW, &options) != 0) {
+        close(fd);
+        return NO;
+    }
+    tcflush(fd, TCIOFLUSH);
+    _serialFD = fd;
+    _serialPath = [path copy];
+    return YES;
+}
+
+static BOOL ELKPoll(int fd, short events, NSTimeInterval timeout) {
+    struct pollfd descriptor = { .fd = fd, .events = events, .revents = 0 };
+    int milliseconds = (int)MAX(0, timeout * 1000);
+    int result;
+    do {
+        result = poll(&descriptor, 1, milliseconds);
+    } while (result < 0 && errno == EINTR);
+    return result > 0 && (descriptor.revents & events) != 0;
+}
+
+- (BOOL)serialWrite:(NSData *)data timeout:(NSTimeInterval)timeout error:(NSError **)error {
+    const uint8_t *bytes = data.bytes;
+    NSUInteger written = 0;
+    while (written < data.length) {
+        if (!ELKPoll(_serialFD, POLLOUT, timeout)) {
+            if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:ETIMEDOUT userInfo:nil];
+            return NO;
+        }
+        ssize_t count = write(_serialFD, bytes + written, data.length - written);
+        if (count < 0) {
+            if (errno == EAGAIN || errno == EINTR) continue;
+            if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+            return NO;
+        }
+        written += (NSUInteger)count;
+    }
+    // Keep packet boundaries: wait until the driver has handed the bytes to USB.
+    tcdrain(_serialFD);
+    return YES;
+}
+
+- (nullable NSData *)serialReadWithMaxLength:(NSUInteger)maxLength timeout:(NSTimeInterval)timeout error:(NSError **)error {
+    if (!ELKPoll(_serialFD, POLLIN, timeout)) {
+        return [NSData data];
+    }
+    NSMutableData *buffer = [NSMutableData dataWithLength:maxLength];
+    ssize_t count = read(_serialFD, buffer.mutableBytes, maxLength);
+    if (count < 0) {
+        if (errno == EAGAIN || errno == EINTR) return [NSData data];
+        if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+        return nil;
+    }
+    buffer.length = (NSUInteger)count;
+    return buffer;
+}
+
 - (NSMutableData *)bufferWithLength:(NSUInteger)length {
     NSMutableData *buffer = [_interface ioDataWithCapacity:length error:nil];
     if (buffer == nil || buffer.length != length) {
@@ -404,6 +519,9 @@ static io_service_t ELKCopyServiceForRegistryID(uint64_t registryID) {
 }
 
 - (BOOL)writeData:(NSData *)data timeout:(NSTimeInterval)timeout error:(NSError **)error {
+    if (_serialFD >= 0) {
+        return [self serialWrite:data timeout:timeout error:error];
+    }
     if (_outPipe == nil) {
         if (error) *error = ELKMakeError(ELKUSBErrorClosed, @"The IR blaster connection is closed.", nil);
         return NO;
@@ -415,6 +533,9 @@ static io_service_t ELKCopyServiceForRegistryID(uint64_t registryID) {
 }
 
 - (nullable NSData *)readDataWithMaxLength:(NSUInteger)maxLength timeout:(NSTimeInterval)timeout error:(NSError **)error {
+    if (_serialFD >= 0) {
+        return [self serialReadWithMaxLength:maxLength timeout:timeout error:error];
+    }
     if (_inPipe == nil) {
         if (error) *error = ELKMakeError(ELKUSBErrorClosed, @"The IR blaster connection is closed.", nil);
         return nil;
@@ -435,6 +556,10 @@ static io_service_t ELKCopyServiceForRegistryID(uint64_t registryID) {
 }
 
 - (void)close {
+    if (_serialFD >= 0) {
+        close(_serialFD);
+        _serialFD = -1;
+    }
     if (_outPipe != nil) {
         [_outPipe abortWithError:nil];
         _outPipe = nil;

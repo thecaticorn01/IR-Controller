@@ -127,7 +127,7 @@ struct DeviceDetailsView: View {
                     if let serial = info.serialNumber { row("Serial", serial) }
                     row("Protocol", info.encoding == .huffman ? "Huffman-coded (newer firmware)" : "Plain")
                     row("Identity", info.identity.hexString)
-                    row("Endpoints", info.endpoints)
+                    row("Transport", info.endpoints)
                 }
                 .font(.callout)
             case .searching:

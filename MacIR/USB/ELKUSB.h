@@ -57,6 +57,9 @@ NS_SWIFT_NAME(USBBulkConnection)
 
 /// YES when the interface had to be captured from a kernel driver.
 @property (nonatomic, readonly) BOOL capturedDevice;
+/// Path of the serial device when macOS's CDC driver owns the dongle and we
+/// talk to it through its serial port instead of raw USB pipes; nil otherwise.
+@property (nonatomic, readonly, copy, nullable) NSString *serialPath;
 @property (nonatomic, readonly) uint8_t outEndpointAddress;
 @property (nonatomic, readonly) uint8_t inEndpointAddress;
 

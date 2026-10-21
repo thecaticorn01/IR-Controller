@@ -262,7 +262,8 @@ final class BlasterWorker: @unchecked Sendable {
                 let encoding = try driver.identify()
                 worker.connection = connection
                 worker.driver = driver
-                let endpoints = String(format: "OUT 0x%02X · IN 0x%02X", connection.outEndpointAddress, connection.inEndpointAddress)
+                let endpoints = connection.serialPath.map { "Serial port \($0)" }
+                    ?? String(format: "USB bulk OUT 0x%02X · IN 0x%02X", connection.outEndpointAddress, connection.inEndpointAddress)
                 return BlasterConnectResult(encoding: encoding, identity: driver.identity,
                                             captured: connection.capturedDevice, endpoints: endpoints)
             } catch {

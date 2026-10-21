@@ -74,6 +74,8 @@ MacIR/                      The macOS app (SwiftUI, Liquid Glass)
 
 ELK Smart dongles (sold under ELK Smart / Ocrustar / ZaZa Remote) show up as a single USB interface with one bulk OUT and one bulk IN endpoint. MacIR talks to them directly from user space with Apple's **IOUSBHost** framework. No driver or kernel extension is needed, and the app runs in the App Sandbox with the `com.apple.security.device.usb` entitlement.
 
+Because the dongle reports a communications-class (CDC) interface, macOS may attach its own serial driver to it. When that happens, MacIR uses the serial port the driver publishes (`/dev/cu.*`), which carries the same bulk endpoints (entitlement `com.apple.security.device.serial`). As a last resort it tries to capture the device from the driver, which only works with elevated privileges. Settings → IR Blaster shows which transport is in use.
+
 The wire protocol was reverse-engineered by Přemysl Eric Janouch in [`elksmart-comm`](https://git.janouch.name/p/usb-drivers) (0BSD licence). MacIR is an independent Swift implementation of that protocol, and its unit tests check the output byte-for-byte against the reference C implementation:
 
 | Command | Bytes | Purpose |
@@ -86,7 +88,7 @@ The wire protocol was reverse-engineered by Přemysl Eric Janouch in [`elksmart-
 ## Troubleshooting
 
 - **"No IR Blaster"**: plug the dongle straight into a USB-C port. Some dongles are picky about hubs and adapters.
-- **"Another app or driver is using the IR blaster"**: quit other remote-control apps and reconnect the dongle. If macOS has attached a system driver to it, MacIR tries to take over the device. That takeover needs elevated rights and may not be possible from the sandboxed app.
+- **"Another app or driver is using the IR blaster"**: quit other remote-control apps (and anything else that might hold its serial port open), then reconnect the dongle.
 - **Learning times out**: hold the remote about 1 cm from the end of the dongle. The EKX4S's receiver is known to be temperamental, so retrying usually helps. The dongle doesn't measure carrier frequency; 38 kHz (configurable in Settings) suits nearly all devices.
 - **A code works only sometimes**: raise *Extra repeats per press* in Settings → General.
 - **Database won't load**: GitHub's anonymous API allows 60 requests an hour. MacIR falls back to jsDelivr, and you can add a GitHub token in Settings → Databases.
