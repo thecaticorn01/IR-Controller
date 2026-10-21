@@ -6,6 +6,16 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// Release builds get their version from the release workflow on the main branch, e.g.
+//   ./gradlew assembleRelease -PversionName=1.2.3 -PversionCode=1020399
+// Local builds fall back to the values below.
+val appVersionName = providers.gradleProperty("versionName").getOrElse("1.0.0")
+val appVersionCode = providers.gradleProperty("versionCode").map(String::toInt).getOrElse(1)
+
+// Optional release signing key, provided by CI from repository secrets. Without it the
+// release APK is signed with the debug key, which changes from machine to machine.
+val releaseKeystore = providers.environmentVariable("ANDROID_KEYSTORE_FILE").orNull
+
 android {
     namespace = "com.thecaticorn01.ircontroller"
     compileSdk = 37
@@ -14,8 +24,20 @@ android {
         applicationId = "com.thecaticorn01.ircontroller"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
+    }
+
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").get()
+                keyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD")
+                    .orElse(providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD")).get()
+            }
+        }
     }
 
     buildTypes {
@@ -23,8 +45,8 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Sideloadable out of the box; replace with your own key to publish.
-            signingConfig = signingConfigs.getByName("debug")
+            // A real key when CI provides one; otherwise the debug key, so the APK can still be sideloaded.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 

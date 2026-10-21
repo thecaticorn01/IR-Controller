@@ -1,4 +1,6 @@
-# IR Controller
+# IR Controller for Android
+
+> This is the **`android`** branch of [IR Controller](https://github.com/thecaticorn01/IR-Controller): it holds only the Android app. The project overview, downloads and the build/release workflows live on the [`main`](https://github.com/thecaticorn01/IR-Controller/tree/main) branch; the macOS app lives on [`macos`](https://github.com/thecaticorn01/IR-Controller/tree/macos).
 
 A native Android app that turns an **ELK Smart USB-C IR blaster** into a universal remote for your phone or tablet.
 Search thousands of remotes online, try them before importing, learn the ones that aren't in any database, and control everything from a Material 3 Expressive interface, a home-screen widget, pinned shortcuts or automation apps.
@@ -50,6 +52,10 @@ On tablets and foldables the library and the database browser switch to a list-d
 - Adaptive navigation: a bottom bar on phones, a navigation rail and list-detail panes on tablets and foldables.
 - Edge-to-edge and predictive back.
 
+## Download
+
+Get `IR-Controller-<version>-android.apk` from [**GitHub Releases**](https://github.com/thecaticorn01/IR-Controller/releases/latest), open it on your phone or tablet, and allow your browser or file manager to install unknown apps when Android asks.
+
 ## Requirements
 
 - Android 8.0 (API 26) or later; built for and targeting **Android 17 (API 37)**.
@@ -62,15 +68,17 @@ When you plug the blaster in, Android offers to open IR Controller. Tick **Alway
 
 ```sh
 ./gradlew assembleDebug            # app/build/outputs/apk/debug/app-debug.apk
-./gradlew assembleRelease          # minified with R8, signed with the debug key so it can be sideloaded
+./gradlew assembleRelease          # minified with R8; signed with the debug key unless a release key is configured
 ./gradlew test                     # protocol/codec/database tests + UI screenshot tests (writes app/screenshots/)
 ./gradlew lint
 LIVE_NETWORK_TESTS=1 ./gradlew :core:test   # also checks downloads from the real databases
 ```
 
-You need JDK 17+ and the Android SDK with `platforms;android-37.0` and `build-tools;37.0.0` (set `sdk.dir` in `local.properties` or `ANDROID_HOME`). Open the repository in Android Studio to work on the app. To publish it, replace the release `signingConfig` in `app/build.gradle.kts` with your own key.
+You need JDK 17+ and the Android SDK with `platforms;android-37.0` and `build-tools;37.0.0` (set `sdk.dir` in `local.properties` or `ANDROID_HOME`). Open the repository in Android Studio to work on the app.
 
-Every push is built, tested and linted by `.github/workflows/android.yml`, which uploads the APKs and screenshots as artifacts.
+Version and signing for release builds come from outside the code: `-PversionName=1.2.3 -PversionCode=…` set the version, and the `ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and (optional) `ANDROID_KEY_PASSWORD` environment variables select a release key. Without them the release APK is signed with the debug key.
+
+CI and releases are defined on the `main` branch. Its workflows check out this branch, then test, lint and build it, and publish the APK in the same GitHub release as the other platforms.
 
 ## Project layout
 
