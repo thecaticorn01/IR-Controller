@@ -93,7 +93,11 @@ jobs:
 
       - name: Release notes
         run: |
-          sed "s/__VERSION__/$VERSION/g" .github/release-notes.md > notes.md
+          : > notes.md
+          if [ -f ".github/changelog/$VERSION.md" ]; then
+            cat ".github/changelog/$VERSION.md" >> notes.md
+          fi
+          sed "s/__VERSION__/$VERSION/g" .github/release-notes.md >> notes.md
           {
             echo
             echo "### Checksums (SHA-256)"
