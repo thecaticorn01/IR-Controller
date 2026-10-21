@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">IR Controller</string>
+    <string name="widget_name">Quick Remote</string>
+    <string name="widget_description">Press buttons on your favourite remote from the home screen.</string>
+</resources>

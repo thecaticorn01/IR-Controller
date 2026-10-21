@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <include domain="file" path="library.json" />
+    <include domain="file" path="sources.json" />
+    <include domain="file" path="datastore/settings.preferences_pb" />
+    <!-- secrets.xml (the GitHub token) is left out: it's encrypted with a device-bound key. -->
+</full-backup-content>
