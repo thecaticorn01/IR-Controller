@@ -212,10 +212,15 @@ jobs:
           # A phone-sized device with enough memory: the default profile (320x640, small
           # RAM) leaves recent Android versions still booting after 10+ minutes.
           echo no | "$AVDMANAGER" create avd --force -n launch-test -k "$IMAGE" -d pixel_7 -p "$ANDROID_AVD_HOME/launch-test.avd"
+          # The stock data partition is too small for recent images: Android 17 leaves too
+          # little free space to install the APK ("Requested internal only, but not enough
+          # space"). Give the AVD an 8 GB data partition.
+          sed -i '/^disk.dataPartition.size=/d' "$ANDROID_AVD_HOME/launch-test.avd/config.ini"
+          echo "disk.dataPartition.size=8G" >> "$ANDROID_AVD_HOME/launch-test.avd/config.ini"
           "$EMULATOR" -list-avds
 
           nohup "$EMULATOR" -avd launch-test -no-window -no-audio -no-boot-anim -no-snapshot \
-            -accel on -gpu swiftshader_indirect -memory 4096 -cores 4 -no-metrics \
+            -accel on -gpu swiftshader_indirect -memory 4096 -cores 4 -partition-size 8192 -no-metrics \
             -camera-back none -camera-front none > emulator.log 2>&1 &
           EMULATOR_PID=$!
           echo "EMULATOR_PID=$EMULATOR_PID" >> "$GITHUB_ENV"
@@ -247,6 +252,7 @@ jobs:
               sleep 2
             done
           done
+          "$ADB" shell df -h /data || true
           echo "Booted Android $("$ADB" shell getprop ro.build.version.release | tr -d '\r') (API $("$ADB" shell getprop ro.build.version.sdk | tr -d '\r'))"
       - name: Install and launch
         timeout-minutes: 10
