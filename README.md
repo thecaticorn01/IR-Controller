@@ -5,6 +5,14 @@ Search thousands of remotes online, try them before importing, learn the ones th
 
 ![MacIR icon](MacIR/Assets.xcassets/AppIcon.appiconset/icon_256x256.png)
 
+| Remote | Database preview |
+|---|---|
+| ![A remote laid out like the physical one](docs/screenshots/remote.png) | ![Previewing a Flipper-IRDB remote before importing it](docs/screenshots/preview.png) |
+| **Learn a new remote** | **Welcome** |
+| ![Learning wizard](docs/screenshots/learn.png) | ![Welcome screen](docs/screenshots/welcome.png) |
+
+<sub>Screenshots are captured automatically by CI on macOS 27 (Xcode 27).</sub>
+
 ## Features
 
 **Online remote databases, built in**
