@@ -51,6 +51,10 @@ struct DatabaseBrowserView: View {
         }
     }
 
+    private var selectionBinding: Binding<DatabaseEntry.ID?> {
+        Binding { database.selectedEntryID } set: { database.selectedEntryID = $0 }
+    }
+
     private var subtitle: String {
         if database.isLoadingAny && database.totalEntryCount == 0 { return "Downloading indexes…" }
         let count = database.results.count
@@ -65,7 +69,7 @@ struct DatabaseBrowserView: View {
         } else if database.results.isEmpty && !database.isSearching {
             ContentUnavailableView.search(text: database.query.text)
         } else {
-            List(database.results, selection: $database.selectedEntryID) { entry in
+            List(database.results, selection: selectionBinding) { entry in
                 ResultRow(entry: entry, sourceName: database.source(id: entry.sourceID)?.name ?? "")
                     .tag(entry.id)
             }
