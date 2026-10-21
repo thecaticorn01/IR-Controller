@@ -152,9 +152,6 @@ struct WelcomeView: View {
                     }
                 }
                 .frame(maxWidth: 820)
-
-                DeviceStatusPill()
-                    .frame(maxWidth: 360)
             }
             .padding(40)
             .frame(maxWidth: .infinity)
@@ -174,6 +171,7 @@ private struct WelcomeCard: View {
                 Image(systemName: systemImage)
                     .font(.title)
                     .foregroundStyle(.tint)
+                    .frame(height: 34, alignment: .leading)
                 Text(title)
                     .font(.headline)
                 Text(detail)

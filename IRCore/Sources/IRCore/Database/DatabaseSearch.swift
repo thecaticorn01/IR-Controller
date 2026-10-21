@@ -43,7 +43,11 @@ public enum DatabaseSearch {
         }
         scored.sort { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
-            if lhs.entry.brandKey != rhs.entry.brandKey { return lhs.entry.brandKey < rhs.entry.brandKey }
+            if lhs.entry.brandKey != rhs.entry.brandKey {
+                // Entries without a brand sort after named brands.
+                if lhs.entry.brandKey.isEmpty || rhs.entry.brandKey.isEmpty { return !lhs.entry.brandKey.isEmpty }
+                return lhs.entry.brandKey < rhs.entry.brandKey
+            }
             return lhs.entry.model.localizedStandardCompare(rhs.entry.model) == .orderedAscending
         }
         return scored.prefix(limit).map(\.entry)

@@ -53,7 +53,7 @@ jobs:
         run: |
           APP=build/Build/Products/Debug/MacIR.app/Contents/MacOS/MacIR
           mkdir -p screenshots
-          for route in welcome remote browse learn; do
+          for route in welcome remote browse preview learn; do
             "$APP" -UITestRoute "$route" -UITestDemoData YES > "screenshots/$route.log" 2>&1 &
             PID=$!
             sleep 12

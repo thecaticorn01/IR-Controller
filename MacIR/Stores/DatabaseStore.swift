@@ -32,6 +32,8 @@ final class DatabaseStore {
     private(set) var brandFacets: [FacetCount<String>] = []
     private(set) var categoryFacets: [FacetCount<DeviceCategory>] = []
     private(set) var isSearching = false
+    /// Result selected in the browser (kept here so it survives navigation).
+    var selectedEntryID: DatabaseEntry.ID?
     private var searchTask: Task<Void, Never>?
 
     /// Maximum number of results shown.

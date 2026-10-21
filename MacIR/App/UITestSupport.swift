@@ -1,5 +1,5 @@
 #if DEBUG
-import Foundation
+import AppKit
 import IRCore
 
 /// Debug-only hooks used by CI to launch straight into a screen for smoke-test screenshots:
@@ -14,9 +14,25 @@ enum UITestSupport {
         switch defaults.string(forKey: "UITestRoute") {
         case "browse": AppNavigation.shared.selection = .browse
         case "learn": AppNavigation.shared.selection = .learn
+        case "preview":
+            AppNavigation.shared.selection = .browse
+            let database = DatabaseStore.shared
+            database.query.text = "samsung tv"
+            Task {
+                for _ in 0..<40 where database.results.isEmpty {
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+                database.selectedEntryID = database.results.first?.id
+            }
         case "remote":
             if let remote = LibraryStore.shared.remotes.first { AppNavigation.shared.open(remote) }
         default: break
+        }
+        if defaults.string(forKey: "UITestRoute") != nil {
+            // Bring the window to the front so screenshots show the active appearance.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                NSApplication.shared.activate()
+            }
         }
     }
 

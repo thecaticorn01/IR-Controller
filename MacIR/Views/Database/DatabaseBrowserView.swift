@@ -5,7 +5,6 @@ import IRCore
 struct DatabaseBrowserView: View {
     @Environment(DatabaseStore.self) private var database
     @Environment(AppNavigation.self) private var navigation
-    @State private var selectedEntryID: DatabaseEntry.ID?
     @State private var showingBrandPicker = false
 
     var body: some View {
@@ -46,8 +45,8 @@ struct DatabaseBrowserView: View {
         }
         .task { await database.refreshIfNeeded() }
         .onChange(of: database.results) {
-            if let selectedEntryID, !database.results.contains(where: { $0.id == selectedEntryID }) {
-                self.selectedEntryID = nil
+            if let selected = database.selectedEntryID, !database.results.contains(where: { $0.id == selected }) {
+                database.selectedEntryID = nil
             }
         }
     }
@@ -66,7 +65,7 @@ struct DatabaseBrowserView: View {
         } else if database.results.isEmpty && !database.isSearching {
             ContentUnavailableView.search(text: database.query.text)
         } else {
-            List(database.results, selection: $selectedEntryID) { entry in
+            List(database.results, selection: $database.selectedEntryID) { entry in
                 ResultRow(entry: entry, sourceName: database.source(id: entry.sourceID)?.name ?? "")
                     .tag(entry.id)
             }
@@ -108,7 +107,7 @@ struct DatabaseBrowserView: View {
 
     @ViewBuilder
     private var preview: some View {
-        if let selectedEntryID, let entry = database.results.first(where: { $0.id == selectedEntryID }) {
+        if let selected = database.selectedEntryID, let entry = database.results.first(where: { $0.id == selected }) {
             DatabasePreviewView(entry: entry)
                 .id(entry.id)
         } else {
@@ -304,11 +303,6 @@ private struct ResultRow: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 0)
-            if entry.isCurated {
-                Image(systemName: "checkmark.seal.fill")
-                    .foregroundStyle(.tint)
-                    .help("Hand-curated remote")
-            }
         }
         .padding(.vertical, 2)
     }

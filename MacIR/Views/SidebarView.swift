@@ -5,7 +5,6 @@ import IRCore
 struct SidebarView: View {
     @Environment(LibraryStore.self) private var library
     @Environment(AppNavigation.self) private var navigation
-    @Environment(DatabaseStore.self) private var database
     @State private var isDropTargeted = false
     @State private var remoteToDelete: IRRemote?
 
@@ -14,7 +13,6 @@ struct SidebarView: View {
         List(selection: $navigation.selection) {
             Section {
                 Label("Browse Databases", systemImage: "globe")
-                    .badge(database.isLoadingAny ? Text("…") : nil)
                     .tag(SidebarItem.browse)
                 Label("Learn New Remote", systemImage: "dot.radiowaves.left.and.right")
                     .tag(SidebarItem.learn)
