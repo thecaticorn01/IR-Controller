@@ -241,7 +241,8 @@ jobs:
           ADB="$ANDROID_HOME/platform-tools/adb"
           mkdir -p launch
           "$ADB" install -r "$APK"
-          "$ADB" logcat -c
+          # Clearing the log can fail on a freshly booted emulator; that's harmless.
+          "$ADB" logcat -c || true
           "$ADB" shell am start -W -n "$PACKAGE/.MainActivity" | tee launch/am-start.txt
           sleep 20
           "$ADB" exec-out screencap -p > launch/screen.png || true
