@@ -1,9 +1,11 @@
-# MacIR
+# IR Controller for macOS
+
+> This is the **`macos`** branch of [IR Controller](https://github.com/thecaticorn01/IR-Controller): it holds only the macOS app. The project overview, downloads and the build/release workflows live on the [`main`](https://github.com/thecaticorn01/IR-Controller/tree/main) branch; the Android app lives on [`android`](https://github.com/thecaticorn01/IR-Controller/tree/android).
 
 A native macOS app that turns an **ELK Smart USB-C IR blaster** into a universal remote for your Mac.
 Search thousands of remotes online, try them before importing, learn the ones that aren't in any database, and control everything from a Liquid Glass interface, the menu bar, your keyboard, or Shortcuts.
 
-![MacIR icon](MacIR/Assets.xcassets/AppIcon.appiconset/icon_256x256.png)
+![IR Controller icon](IRController/Assets.xcassets/AppIcon.appiconset/icon_256x256.png)
 
 | Remote | Database preview |
 |---|---|
@@ -39,11 +41,11 @@ Search thousands of remotes online, try them before importing, learn the ones th
 
 ## Download
 
-Get the latest build from [**GitHub Releases**](https://github.com/thecaticorn01/MacOS-IR/releases/latest). It's a universal app (Apple silicon and Intel) for macOS 26 or later, packaged as a `.dmg` and a `.zip`.
+Get the latest build from [**GitHub Releases**](https://github.com/thecaticorn01/IR-Controller/releases/latest): `IR-Controller-<version>-macos.dmg` (or `.zip`). It's a universal app (Apple silicon and Intel) for macOS 26 or later.
 
-Release builds are signed ad hoc but not notarized, so macOS asks for confirmation the first time: open **System Settings → Privacy & Security** and click **Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/MacIR.app`.
+Release builds are signed ad hoc but not notarized, so macOS asks for confirmation the first time: open **System Settings → Privacy & Security** and click **Open Anyway**, or run `xattr -dr com.apple.quarantine "/Applications/IR Controller.app"`.
 
-New releases are produced by `.github/workflows/release.yml` whenever a `v*` tag is pushed, or manually from the Actions tab.
+Releases are built by the workflows on the `main` branch, which check out this branch, build it, and publish one release containing every platform's app.
 
 ## Requirements
 
@@ -54,21 +56,21 @@ New releases are produced by `.github/workflows/release.yml` whenever a `v*` tag
 ## Building
 
 ```sh
-git clone https://github.com/thecaticorn01/MacOS-IR.git
-cd MacOS-IR
-open MacIR.xcodeproj
+git clone --branch macos https://github.com/thecaticorn01/IR-Controller.git IR-Controller-macos
+cd IR-Controller-macos
+open IRController.xcodeproj
 ```
 
-Choose the **MacIR** scheme and run (⌘R). To run on your own Mac, set your development team under *Signing & Capabilities*, or keep the default ad-hoc "Sign to Run Locally" identity.
+Choose the **IRController** scheme and run (⌘R). To run on your own Mac, set your development team under *Signing & Capabilities*, or keep the default ad-hoc "Sign to Run Locally" identity.
 
 Command-line build and tests:
 
 ```sh
-xcodebuild -project MacIR.xcodeproj -scheme MacIR -configuration Release build
+xcodebuild -project IRController.xcodeproj -scheme IRController -configuration Release build
 swift test --package-path IRCore      # protocol, format, ElkSmart and search tests (also runs on Linux)
 ```
 
-Every push is built on GitHub Actions (`macos-26` runner with Xcode, plus the core tests on Linux).
+CI is defined on the `main` branch: it builds this branch with Xcode 26 (macOS 26 SDK) and Xcode 27 (macOS 27 SDK), runs the `IRCore` tests on macOS and Linux, and launches the app to capture the screenshots above.
 
 ## Project layout
 
@@ -79,7 +81,7 @@ IRCore/                     Swift package with no UI dependencies (Swift 6, unit
   Formats/                  Flipper .ir reader/writer, IRDB CSV, Pronto / sendir import
   ElkSmart/                 ElkSmart wire protocol (codec + driver over a BulkTransport)
   Database/                 GitHub/jsDelivr index fetching, indexing, ranked faceted search
-MacIR/                      The macOS app (SwiftUI, Liquid Glass)
+IRController/               The macOS app (SwiftUI, Liquid Glass)
   USB/                      IOUSBHost device monitor and bulk pipes (Objective-C) + Swift adapter
   Stores/                   LibraryStore, DatabaseStore, BlasterManager (USB I/O on a serial queue)
   Views/                    Sidebar, remote keypad, database browser, learning wizard, settings
@@ -88,13 +90,13 @@ MacIR/                      The macOS app (SwiftUI, Liquid Glass)
 
 ## How the blaster works
 
-ELK Smart dongles (sold under ELK Smart / Ocrustar / ZaZa Remote) show up as a single USB interface with one bulk OUT and one bulk IN endpoint. MacIR talks to them directly from user space with Apple's **IOUSBHost** framework. No driver or kernel extension is needed.
+ELK Smart dongles (sold under ELK Smart / Ocrustar / ZaZa Remote) show up as a single vendor-specific USB interface (class `0xFF`) with one bulk OUT and one bulk IN endpoint. IR Controller talks to them directly from user space with Apple's **IOUSBHost** framework. No driver or kernel extension is needed.
 
-MacIR deliberately runs **without the App Sandbox** but with the hardened runtime. Recent macOS releases deny sandboxed apps the `iokit-open-service IOUSBHostInterface` operation, even when they have the USB entitlement, so a sandboxed build can see the dongle but can't open it.
+IR Controller deliberately runs **without the App Sandbox** but with the hardened runtime. Recent macOS releases deny sandboxed apps the `iokit-open-service IOUSBHostInterface` operation, even when they have the USB entitlement, so a sandboxed build can see the dongle but can't open it.
 
-Because the dongle reports a communications-class (CDC) interface, macOS may attach its own serial driver to it. When that happens, MacIR uses the serial port the driver publishes (`/dev/cu.*`), which carries the same bulk endpoints (entitlement `com.apple.security.device.serial`). As a last resort it tries to capture the device from the driver, which only works with elevated privileges. Settings → IR Blaster shows which transport is in use.
+Some dongle revisions report a communications-class (CDC) interface instead, and macOS may attach its own serial driver to those. In that case IR Controller uses the serial port the driver publishes (`/dev/cu.*`), which carries the same bulk endpoints (entitlement `com.apple.security.device.serial`). As a last resort it tries to capture the device from the driver, which only works with elevated privileges. Settings → IR Blaster shows which transport is in use.
 
-The wire protocol was reverse-engineered by Přemysl Eric Janouch in [`elksmart-comm`](https://git.janouch.name/p/usb-drivers) (0BSD licence). MacIR is an independent Swift implementation of that protocol, and its unit tests check the output byte-for-byte against the reference C implementation:
+The wire protocol was reverse-engineered by Přemysl Eric Janouch in [`elksmart-comm`](https://git.janouch.name/p/usb-drivers) (0BSD licence). IR Controller is an independent Swift implementation of that protocol, and its unit tests check the output byte-for-byte against the reference C implementation:
 
 | Command | Bytes | Purpose |
 |---|---|---|
@@ -107,10 +109,14 @@ The wire protocol was reverse-engineered by Přemysl Eric Janouch in [`elksmart-
 
 - **"No IR Blaster"**: plug the dongle straight into a USB-C port. Some dongles are picky about hubs and adapters.
 - **"The IR blaster is in use by another program"**: the message names the process (pid and name). Quit it, then reconnect the dongle.
-- **Anything else**: click the blaster status at the bottom of the sidebar → **Copy Diagnostic Report**, and include the report in an issue. It lists the USB devices MacIR sees, the macOS driver tree below the dongle, and which process owns any open connection to it.
+- **Anything else**: click the blaster status at the bottom of the sidebar → **Copy Diagnostic Report**, and include the report in an issue. It lists the USB devices IR Controller sees, the macOS driver tree below the dongle, and which process owns any open connection to it.
 - **Learning times out**: hold the remote about 1 cm from the end of the dongle. The EKX4S's receiver is known to be temperamental, so retrying usually helps. The dongle doesn't measure carrier frequency; 38 kHz (configurable in Settings) suits nearly all devices.
 - **A code works only sometimes**: raise *Extra repeats per press* in Settings → General.
-- **Database won't load**: GitHub's anonymous API allows 60 requests an hour. MacIR falls back to jsDelivr, and you can add a GitHub token in Settings → Databases.
+- **Database won't load**: GitHub's anonymous API allows 60 requests an hour. IR Controller falls back to jsDelivr, and you can add a GitHub token in Settings → Databases.
+
+## Upgrading from MacIR
+
+Pre-release builds of this app were called **MacIR**. On first launch, IR Controller copies over your remotes, settings and GitHub token from MacIR. If macOS asks whether IR Controller may access data from other apps, click **Allow**: that's MacIR's old sandboxed library. You can then delete MacIR.
 
 ## Credits
 

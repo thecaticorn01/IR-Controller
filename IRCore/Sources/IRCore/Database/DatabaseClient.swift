@@ -113,7 +113,7 @@ public struct DatabaseClient: Sendable {
     private func fetch(_ request: URLRequest) async throws -> Data {
         var request = request
         request.timeoutInterval = 30
-        request.setValue("MacIR", forHTTPHeaderField: "User-Agent")
+        request.setValue("IR-Controller", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             if http.statusCode == 403 || http.statusCode == 429 { throw DatabaseError.rateLimited }
