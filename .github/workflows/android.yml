@@ -4,6 +4,8 @@ name: Android
 #
 # CI mode (no `version`): unit, protocol and screenshot tests, lint, and debug +
 # release APKs.
+# Both modes then install the release APK on emulators (the minimum and the
+# target Android version), launch it and fail if it crashes.
 # Release mode (`version` set): tests and lint, then a release APK stamped with
 # the version, uploaded as `release-android`. When the caller passes the
 # ANDROID_KEYSTORE_* secrets the APK is signed with that key; otherwise with a
@@ -164,3 +166,81 @@ jobs:
           path: |
             app/build/reports
             core/build/reports
+
+  launch-test:
+    name: Launch test (API ${{ matrix.api }})
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # 26 = Android 8.0 (minSdk), 37.0 = Android 17 (targetSdk).
+        api: ["26", "37.0"]
+    env:
+      PACKAGE: com.thecaticorn01.ircontroller
+      IMAGE: system-images;android-${{ matrix.api }};google_apis;x86_64
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.version == '' && 'android-apks' || 'release-android' }}
+          path: apk
+      - name: Pick the release APK
+        run: |
+          APK=$(find apk -name '*.apk' | grep -E 'release|android\.apk' | head -1)
+          [[ -n "$APK" ]] || { echo "::error::No release APK found"; find apk; exit 1; }
+          echo "APK=$APK" >> "$GITHUB_ENV"
+          echo "Testing $APK"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Start emulator
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          AVDMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null
+          "$SDKMANAGER" "emulator" "platform-tools" "$IMAGE" > /dev/null
+          echo no | "$AVDMANAGER" create avd --force -n launch-test -k "$IMAGE"
+          nohup "$ANDROID_HOME/emulator/emulator" -avd launch-test -no-window -no-audio -no-boot-anim \
+            -gpu swiftshader_indirect -no-snapshot -camera-back none > emulator.log 2>&1 &
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          "$ADB" wait-for-device
+          for i in $(seq 1 120); do
+            [[ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] && break
+            sleep 5
+          done
+          [[ "$("$ADB" shell getprop sys.boot_completed | tr -d '\r')" == "1" ]] || { echo "::error::Emulator did not boot"; tail -50 emulator.log; exit 1; }
+          "$ADB" shell settings put global window_animation_scale 0
+          "$ADB" shell settings put global transition_animation_scale 0
+          "$ADB" shell settings put global animator_duration_scale 0
+          echo "Booted $("$ADB" shell getprop ro.build.version.release | tr -d '\r') (API $("$ADB" shell getprop ro.build.version.sdk | tr -d '\r'))"
+      - name: Install and launch
+        run: |
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          mkdir -p launch
+          "$ADB" install -r "$APK"
+          "$ADB" logcat -c
+          "$ADB" shell am start -W -n "$PACKAGE/.MainActivity" | tee launch/am-start.txt
+          sleep 20
+          "$ADB" exec-out screencap -p > launch/screen.png || true
+          "$ADB" logcat -d > launch/logcat.txt
+          "$ADB" logcat -d -b crash > launch/crash.txt || true
+          if [[ -s launch/crash.txt ]] || grep -q "FATAL EXCEPTION" launch/logcat.txt || ! "$ADB" shell pidof "$PACKAGE" > /dev/null; then
+            echo "::error::IR Controller crashed or exited after launch on API ${{ matrix.api }}"
+            echo "----- crash buffer -----"
+            cat launch/crash.txt
+            echo "----- AndroidRuntime -----"
+            grep -A 60 "FATAL EXCEPTION" launch/logcat.txt | head -120
+            exit 1
+          fi
+          echo "IR Controller is running (pid $("$ADB" shell pidof "$PACKAGE" | tr -d '\r'))."
+      - name: Upload launch results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-launch-api-${{ matrix.api }}${{ inputs.version != '' && '-release' || '' }}
+          path: |
+            launch
+            emulator.log
