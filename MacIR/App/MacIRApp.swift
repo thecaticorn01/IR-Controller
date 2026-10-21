@@ -11,6 +11,9 @@ struct MacIRApp: App {
 
     init() {
         BlasterManager.shared.start()
+        #if DEBUG
+        UITestSupport.apply()
+        #endif
     }
 
     var body: some Scene {

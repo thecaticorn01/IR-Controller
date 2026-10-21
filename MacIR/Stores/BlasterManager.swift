@@ -57,6 +57,7 @@ final class BlasterManager {
 
     private let worker = BlasterWorker()
     private var learnToken: UUID?
+    private var connectingRegistryID: UInt64?
     private var monitor: USBDeviceMonitor?
     private var connectTask: Task<Void, Never>?
 
@@ -92,8 +93,10 @@ final class BlasterManager {
             state = .searching
             return
         }
-        // Stay on a working connection if that device is still present.
+        // Stay on a working (or in-progress) connection if that device is still present.
         if let info, newDevices.contains(where: { $0.registryID == info.registryID }) { return }
+        if case .connecting = state, let pending = connectingRegistryID,
+           newDevices.contains(where: { $0.registryID == pending }) { return }
         connect(to: first)
     }
 
@@ -110,6 +113,7 @@ final class BlasterManager {
     private func connect(to device: USBDeviceInfo) {
         connectTask?.cancel()
         let registryID = device.registryID
+        connectingRegistryID = registryID
         let productID = device.productID
         let productName = device.productName
         let serial = device.serialNumber
