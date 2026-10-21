@@ -13,7 +13,7 @@ public struct IRButton: Codable, Hashable, Identifiable, Sendable {
     }
 
     /// The semantic role inferred from the button name.
-    public var role: ButtonRole { ButtonRole(buttonName: name) }
+    public var role: RemoteButtonRole { RemoteButtonRole(buttonName: name) }
 }
 
 /// Where an imported remote came from.

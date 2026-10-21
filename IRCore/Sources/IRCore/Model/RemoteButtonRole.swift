@@ -2,7 +2,7 @@ import Foundation
 
 /// Semantic role of a remote button, inferred from its (often inconsistent) name.
 /// Used to lay out a physical-remote-like keypad and to pick icons.
-public enum ButtonRole: Hashable, Sendable {
+public enum RemoteButtonRole: Hashable, Sendable {
     case power, powerOn, powerOff
     case volumeUp, volumeDown, mute
     case channelUp, channelDown
@@ -23,7 +23,7 @@ public enum ButtonRole: Hashable, Sendable {
         if name.hasSuffix("-") { name = String(name.dropLast()) + " minus" }
         let key = name.searchKey
         let compact = key.replacingOccurrences(of: " ", with: "")
-        self = ButtonRole.lookup[compact] ?? ButtonRole.fuzzy(key: key, compact: compact)
+        self = RemoteButtonRole.lookup[compact] ?? RemoteButtonRole.fuzzy(key: key, compact: compact)
     }
 
     /// SF Symbol name, if the role has a natural icon.
@@ -80,9 +80,9 @@ public enum ButtonRole: Hashable, Sendable {
         return false
     }
 
-    private static let lookup: [String: ButtonRole] = {
-        var map: [String: ButtonRole] = [:]
-        func add(_ role: ButtonRole, _ names: String...) { for n in names { map[n] = role } }
+    private static let lookup: [String: RemoteButtonRole] = {
+        var map: [String: RemoteButtonRole] = [:]
+        func add(_ role: RemoteButtonRole, _ names: String...) { for n in names { map[n] = role } }
         add(.power, "power", "pwr", "onoff", "powertoggle", "standby", "power1", "powerbutton", "keypower", "toggle")
         add(.powerOn, "on", "poweron", "pwron", "discreteon")
         add(.powerOff, "off", "poweroff", "pwroff", "discreteoff")
@@ -134,7 +134,7 @@ public enum ButtonRole: Hashable, Sendable {
         return map
     }()
 
-    private static func fuzzy(key: String, compact: String) -> ButtonRole {
+    private static func fuzzy(key: String, compact: String) -> RemoteButtonRole {
         let words = Set(key.split(separator: " ").map(String.init))
         func has(_ w: String) -> Bool { words.contains(w) }
         if has("power") || has("pwr") {

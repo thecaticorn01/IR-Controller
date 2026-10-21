@@ -37,7 +37,7 @@ jobs:
           xcodebuild \
             -project MacIR.xcodeproj \
             -scheme MacIR \
-            -configuration Release \
+            -configuration Debug \
             -destination 'platform=macOS' \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
@@ -48,7 +48,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MacIR-app
-          path: build/Build/Products/Release/MacIR.app
+          path: build/Build/Products/Debug/MacIR.app
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4

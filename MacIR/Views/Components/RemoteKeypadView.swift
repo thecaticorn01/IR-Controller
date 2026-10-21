@@ -77,7 +77,7 @@ struct RemoteKeypadView: View {
         }
     }
 
-    private func color(for role: ButtonRole) -> Color {
+    private func color(for role: RemoteButtonRole) -> Color {
         switch role {
         case .red: .red
         case .green: .green

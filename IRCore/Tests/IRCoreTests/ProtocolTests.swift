@@ -103,19 +103,19 @@ import Testing
 
 @Suite struct ButtonRoleTests {
     @Test func recognisesCommonNames() {
-        #expect(ButtonRole(buttonName: "Power") == .power)
-        #expect(ButtonRole(buttonName: "Vol_up") == .volumeUp)
-        #expect(ButtonRole(buttonName: "Vol_dn") == .volumeDown)
-        #expect(ButtonRole(buttonName: "VOL+") == .volumeUp)
-        #expect(ButtonRole(buttonName: "Vol-") == .volumeDown)
-        #expect(ButtonRole(buttonName: "Ch_next") == .channelUp)
-        #expect(ButtonRole(buttonName: "KEY_VOLUMEUP") == .volumeUp)
-        #expect(ButtonRole(buttonName: "Volume Up") == .volumeUp)
-        #expect(ButtonRole(buttonName: "7") == .digit(7))
-        #expect(ButtonRole(buttonName: "Ok") == .ok)
-        #expect(ButtonRole(buttonName: "Power On") == .powerOn)
-        #expect(ButtonRole(buttonName: "Fast_fo") == .fastForward)
-        #expect(ButtonRole(buttonName: "Something odd") == .other)
+        #expect(RemoteButtonRole(buttonName: "Power") == .power)
+        #expect(RemoteButtonRole(buttonName: "Vol_up") == .volumeUp)
+        #expect(RemoteButtonRole(buttonName: "Vol_dn") == .volumeDown)
+        #expect(RemoteButtonRole(buttonName: "VOL+") == .volumeUp)
+        #expect(RemoteButtonRole(buttonName: "Vol-") == .volumeDown)
+        #expect(RemoteButtonRole(buttonName: "Ch_next") == .channelUp)
+        #expect(RemoteButtonRole(buttonName: "KEY_VOLUMEUP") == .volumeUp)
+        #expect(RemoteButtonRole(buttonName: "Volume Up") == .volumeUp)
+        #expect(RemoteButtonRole(buttonName: "7") == .digit(7))
+        #expect(RemoteButtonRole(buttonName: "Ok") == .ok)
+        #expect(RemoteButtonRole(buttonName: "Power On") == .powerOn)
+        #expect(RemoteButtonRole(buttonName: "Fast_fo") == .fastForward)
+        #expect(RemoteButtonRole(buttonName: "Something odd") == .other)
     }
 }
 
