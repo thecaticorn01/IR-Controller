@@ -71,10 +71,8 @@ final class BlasterManager {
     /// Starts watching for dongles being plugged in or removed.
     func start() {
         guard monitor == nil else { return }
-        let monitor = USBDeviceMonitor(
-            vendorID: ElkSmartModel.vendorID,
-            productIDs: ElkSmartModel.knownProductIDs.map { NSNumber(value: $0) }
-        ) { [weak self] devices in
+        // Accept every product from ELK Smart's vendor ID: new dongle revisions get new product IDs.
+        let monitor = USBDeviceMonitor(vendorID: ElkSmartModel.vendorID, productIDs: []) { [weak self] devices in
             MainActor.assumeIsolated {
                 self?.devicesChanged(devices)
             }
@@ -210,6 +208,24 @@ final class BlasterManager {
         if !(error is ElkSmartError || error is IRProtocolError || error is BlasterError) {
             reconnect()
         }
+    }
+
+    /// Text report for bug reports: app/OS versions, connection state, visible
+    /// USB devices with the driver tree below the dongle, and the activity log.
+    func diagnosticReport() -> String {
+        let bundle = Bundle.main
+        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        var lines = [
+            "MacIR \(version) (\(build)) on \(ProcessInfo.processInfo.operatingSystemVersionString)",
+            "State: \(String(describing: state))",
+            "Devices matched: \(devices.map { String(format: "%04lX:%04lX %@", $0.vendorID, $0.productID, $0.productName) }.joined(separator: ", "))",
+            "",
+            USBDeviceMonitor.diagnosticReport(vendorID: ElkSmartModel.vendorID),
+            "Activity log:",
+        ]
+        lines += log.reversed().map { "\($0.date.formatted(date: .omitted, time: .standard)) \($0.isError ? "ERROR " : "")\($0.message)" }
+        return lines.joined(separator: "\n")
     }
 
     func record(_ message: String, isError: Bool = false) {

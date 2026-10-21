@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import IRCore
 
 /// Glass pill showing the blaster connection state; opens details on click.
@@ -106,6 +107,7 @@ struct StatusIndicator: View {
 /// Connection details, troubleshooting and the activity log.
 struct DeviceDetailsView: View {
     @Environment(BlasterManager.self) private var blaster
+    @State private var copiedReport = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -131,7 +133,7 @@ struct DeviceDetailsView: View {
                 }
                 .font(.callout)
             case .searching:
-                Text("Plug your ELK Smart USB-C IR blaster into a USB-C port. If you use a hub or adapter, try connecting it directly to your Mac.")
+                Text("Plug your ELK Smart USB-C IR blaster into a USB-C port. If you use a hub or adapter, try connecting it directly to your Mac. If it still isn’t found, copy the diagnostic report below and include it in a bug report.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             case .connecting(let name):
@@ -142,6 +144,21 @@ struct DeviceDetailsView: View {
                     Text(message)
                         .font(.callout)
                     Text("Unplug the blaster, wait a few seconds, plug it back in, then choose Reconnect. Some dongles are picky about cables and hubs.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack {
+                Button("Copy Diagnostic Report", systemImage: "stethoscope") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(blaster.diagnosticReport(), forType: .string)
+                    copiedReport = true
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                if copiedReport {
+                    Label("Copied", systemImage: "checkmark")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

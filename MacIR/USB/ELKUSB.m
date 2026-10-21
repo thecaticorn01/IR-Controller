@@ -120,13 +120,11 @@ static void ELKMonitorCallback(void *refcon, io_iterator_t iterator) {
     [self stop];
 }
 
+/// Matches every USB device. USB matching rules (USB Common Class Specification)
+/// don't accept a vendor ID on its own, so a vendor-only dictionary can match
+/// nothing; filter by vendor and product in code instead, as libusb does.
 - (CFMutableDictionaryRef)newMatchingDictionary CF_RETURNS_RETAINED {
-    CFMutableDictionaryRef matching = IOServiceMatching("IOUSBHostDevice");
-    if (matching != NULL) {
-        NSMutableDictionary *dictionary = (__bridge NSMutableDictionary *)matching;
-        dictionary[@"idVendor"] = @(_vendorID);
-    }
-    return matching;
+    return IOServiceMatching("IOUSBHostDevice");
 }
 
 - (void)start {
@@ -192,18 +190,21 @@ static void ELKMonitorCallback(void *refcon, io_iterator_t iterator) {
     }
     io_service_t service;
     while ((service = IOIteratorNext(iterator)) != IO_OBJECT_NULL) {
+        NSInteger vendorID = ELKIntegerProperty(service, CFSTR("idVendor"));
         NSInteger productID = ELKIntegerProperty(service, CFSTR("idProduct"));
-        if (_productIDs.count == 0 || [_productIDs containsObject:@(productID)]) {
+        if (vendorID == _vendorID && (_productIDs.count == 0 || [_productIDs containsObject:@(productID)])) {
             ELKUSBDeviceInfo *info = [[ELKUSBDeviceInfo alloc] init];
             uint64_t entryID = 0;
             IORegistryEntryGetRegistryEntryID(service, &entryID);
             info.registryID = entryID;
-            info.vendorID = ELKIntegerProperty(service, CFSTR("idVendor"));
+            info.vendorID = vendorID;
             info.productID = productID;
             NSInteger location = ELKIntegerProperty(service, CFSTR("locationID"));
             info.locationID = location >= 0 ? (uint32_t)location : 0;
-            info.productName = ELKStringProperty(service, CFSTR("USB Product Name")) ?: @"IR Blaster";
-            info.manufacturer = ELKStringProperty(service, CFSTR("USB Vendor Name"));
+            info.productName = ELKStringProperty(service, CFSTR("USB Product Name"))
+                ?: ELKStringProperty(service, CFSTR("kUSBProductString")) ?: @"IR Blaster";
+            info.manufacturer = ELKStringProperty(service, CFSTR("USB Vendor Name"))
+                ?: ELKStringProperty(service, CFSTR("kUSBVendorString"));
             info.serialNumber = ELKStringProperty(service, CFSTR("USB Serial Number"));
             [devices addObject:info];
         }
@@ -211,6 +212,64 @@ static void ELKMonitorCallback(void *refcon, io_iterator_t iterator) {
     }
     IOObjectRelease(iterator);
     return devices;
+}
+
+static void ELKAppendTree(NSMutableString *report, io_registry_entry_t entry, int depth) {
+    io_name_t className = {0};
+    IOObjectGetClass(entry, className);
+    NSMutableString *line = [NSMutableString stringWithFormat:@"%@- %s", [@"" stringByPaddingToLength:(NSUInteger)depth * 2 withString:@" " startingAtIndex:0], className];
+    NSArray<NSString *> *integerKeys = @[@"bInterfaceNumber", @"bInterfaceClass", @"bInterfaceSubClass", @"bInterfaceProtocol",
+                                         @"bConfigurationValue", @"bDeviceClass", @"bDeviceSubClass"];
+    for (NSString *key in integerKeys) {
+        NSInteger value = ELKIntegerProperty(entry, (__bridge CFStringRef)key);
+        if (value >= 0) [line appendFormat:@" %@=%ld", key, (long)value];
+    }
+    for (NSString *key in @[@"IOCalloutDevice", @"IOTTYBaseName", @"CFBundleIdentifier"]) {
+        NSString *value = ELKStringProperty(entry, (__bridge CFStringRef)key);
+        if (value != nil) [line appendFormat:@" %@=%@", key, value];
+    }
+    [report appendFormat:@"%@\n", line];
+    if (depth > 8) return;
+    io_iterator_t children = IO_OBJECT_NULL;
+    if (IORegistryEntryGetChildIterator(entry, kIOServicePlane, &children) == KERN_SUCCESS) {
+        io_registry_entry_t child;
+        while ((child = IOIteratorNext(children)) != IO_OBJECT_NULL) {
+            ELKAppendTree(report, child, depth + 1);
+            IOObjectRelease(child);
+        }
+        IOObjectRelease(children);
+    }
+}
+
++ (NSString *)diagnosticReportForVendorID:(NSInteger)vendorID {
+    NSMutableString *report = [NSMutableString string];
+    io_iterator_t iterator = IO_OBJECT_NULL;
+    kern_return_t result = IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOUSBHostDevice"), &iterator);
+    if (result != KERN_SUCCESS) {
+        [report appendFormat:@"IOServiceGetMatchingServices failed: 0x%08x\n", result];
+        return report;
+    }
+    NSUInteger count = 0;
+    NSMutableString *trees = [NSMutableString string];
+    io_service_t service;
+    while ((service = IOIteratorNext(iterator)) != IO_OBJECT_NULL) {
+        count++;
+        NSInteger vendor = ELKIntegerProperty(service, CFSTR("idVendor"));
+        NSInteger product = ELKIntegerProperty(service, CFSTR("idProduct"));
+        NSString *name = ELKStringProperty(service, CFSTR("USB Product Name")) ?: ELKStringProperty(service, CFSTR("kUSBProductString")) ?: @"?";
+        uint64_t entryID = 0;
+        IORegistryEntryGetRegistryEntryID(service, &entryID);
+        [report appendFormat:@"USB %04lx:%04lx %@ (entry 0x%llx)\n", (long)vendor, (long)product, name, entryID];
+        if (vendor == vendorID) {
+            [trees appendFormat:@"\nDriver tree for %04lx:%04lx %@:\n", (long)vendor, (long)product, name];
+            ELKAppendTree(trees, service, 0);
+        }
+        IOObjectRelease(service);
+    }
+    IOObjectRelease(iterator);
+    [report insertString:[NSString stringWithFormat:@"%lu USB device(s) visible to MacIR\n", (unsigned long)count] atIndex:0];
+    [report appendString:trees];
+    return report;
 }
 
 @end

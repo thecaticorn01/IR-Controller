@@ -45,6 +45,10 @@ NS_SWIFT_NAME(USBDeviceMonitor)
 - (void)start;
 - (void)stop;
 - (NSArray<ELKUSBDeviceInfo *> *)currentDevices;
+
+/// Human-readable dump of every USB device MacIR can see, plus the IOKit
+/// driver tree below devices from `vendorID`, for troubleshooting.
++ (NSString *)diagnosticReportForVendorID:(NSInteger)vendorID NS_SWIFT_NAME(diagnosticReport(vendorID:));
 @end
 
 /// An open bulk IN/OUT pipe pair on the device's first interface.
