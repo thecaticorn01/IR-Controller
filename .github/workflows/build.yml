@@ -51,20 +51,20 @@ jobs:
           grep -q "BUILD SUCCEEDED" xcodebuild.log
       - name: Launch smoke test and screenshots
         run: |
-          APP=build/Build/Products/Debug/MacIR.app/Contents/MacOS/MacIR
+          APP="$PWD/build/Build/Products/Debug/MacIR.app"
           mkdir -p screenshots
           for route in welcome remote browse preview learn; do
-            "$APP" -UITestRoute "$route" -UITestDemoData YES > "screenshots/$route.log" 2>&1 &
-            PID=$!
+            open -n "$APP" --stdout "$PWD/screenshots/$route.log" --stderr "$PWD/screenshots/$route.log" \
+              --args -UITestRoute "$route" -UITestDemoData YES
             sleep 12
-            if ! kill -0 "$PID" 2>/dev/null; then
+            if ! pgrep -x MacIR > /dev/null; then
               echo "::error::MacIR exited during launch ($route)"
               cat "screenshots/$route.log"
               exit 1
             fi
             screencapture -x "screenshots/$route.png" || echo "screencapture unavailable"
-            kill "$PID"
-            wait "$PID" 2>/dev/null || true
+            pkill -x MacIR
+            sleep 2
           done
       - name: Upload screenshots
         if: always()
