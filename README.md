@@ -14,7 +14,7 @@ IR Controller is cross-platform, but every platform gets a **native app** built 
 
 | macOS | Android |
 |---|---|
-| <img src="https://github.com/thecaticorn01/IR-Controller/raw/macos/docs/screenshots/remote.png" alt="IR Controller on macOS" width="520"> | <img src="https://github.com/thecaticorn01/IR-Controller/raw/android/docs/screenshots/remote.png" alt="IR Controller on Android" width="240"> |
+| <img src="https://github.com/thecaticorn01/IR-Controller/raw/macos/docs/screenshots/ir-controller-remote.png" alt="IR Controller on macOS" width="520"> | <img src="https://github.com/thecaticorn01/IR-Controller/raw/android/docs/screenshots/remote.png" alt="IR Controller on Android" width="240"> |
 
 ## Features
 
