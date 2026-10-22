@@ -24,6 +24,9 @@ enum UITestSupport {
                 }
                 database.selectedEntryID = database.results.first?.id
             }
+        case "no-results":
+            AppNavigation.shared.selection = .browse
+            DatabaseStore.shared.query.text = "no such remote xyzzy"
         case "remote":
             if let remote = LibraryStore.shared.remotes.first { AppNavigation.shared.open(remote) }
         default: break
