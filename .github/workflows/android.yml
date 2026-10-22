@@ -285,7 +285,20 @@ jobs:
           done
           # Clearing the log can fail on a freshly booted emulator; that's harmless.
           "$ADB" logcat -c || true
-          "$ADB" shell am start -W -n "$PACKAGE/.MainActivity" | tee launch/am-start.txt
+          # "Success" from the installer doesn't mean the package manager can resolve the
+          # app yet: launching straight away can fail with "Activity class ... does not
+          # exist". Wait until the activity resolves, and retry the launch if it still does.
+          for i in $(seq 1 30); do
+            "$ADB" shell cmd package resolve-activity --brief -n "$PACKAGE/.MainActivity" 2>/dev/null | grep -q "$PACKAGE/" && break
+            sleep 2
+          done
+          for attempt in 1 2 3 4 5; do
+            "$ADB" shell am start -W -n "$PACKAGE/.MainActivity" | tee launch/am-start.txt
+            grep -q "^Error" launch/am-start.txt || break
+            [[ $attempt == 5 ]] && { echo "::error::Could not start IR Controller"; exit 1; }
+            echo "Launch attempt $attempt failed; retrying in 5 s"
+            sleep 5
+          done
           sleep 20
           RUNNING=1; "$ADB" shell pidof "$PACKAGE" > /dev/null || RUNNING=0
           "$ADB" logcat -d > launch/logcat.txt
