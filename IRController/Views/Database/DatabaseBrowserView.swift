@@ -14,12 +14,16 @@ struct DatabaseBrowserView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
             Divider()
+            // Both panes, and the split view itself, fill the height below the filter bar.
+            // Otherwise a short pane (like the "No Results" message) shrinks the split view
+            // and the whole page ends up centred halfway down the window.
             HSplitView {
                 resultsList
-                    .frame(minWidth: 300, idealWidth: 360, maxWidth: 520)
+                    .frame(minWidth: 300, idealWidth: 360, maxWidth: 520, maxHeight: .infinity)
                 preview
                     .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("Browse Databases")
         .navigationSubtitle(subtitle)
