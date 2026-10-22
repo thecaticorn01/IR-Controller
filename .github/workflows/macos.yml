@@ -75,7 +75,7 @@ jobs:
         run: |
           APP="$PWD/build/Build/Products/Debug/$APP_NAME.app"
           mkdir -p screenshots
-          for route in welcome remote browse preview learn; do
+          for route in welcome remote browse no-results preview learn; do
             open -n "$APP" --stdout "$PWD/screenshots/$route.log" --stderr "$PWD/screenshots/$route.log" \
               --args -UITestRoute "$route" -UITestDemoData YES
             sleep 12
