@@ -17,6 +17,9 @@ struct PowerScanSheet: View {
     @State private var interval = 3.0
     @State private var current: RemoteImport?
     @State private var runTask: Task<Void, Never>?
+    /// The pending "advance automatically" timer. Tracked so it can be cancelled:
+    /// otherwise it outlives the sheet and keeps stepping through remotes.
+    @State private var advanceTask: Task<Void, Never>?
 
     private static let maxCandidates = 300
 
@@ -104,7 +107,7 @@ struct PowerScanSheet: View {
             candidates = Array(database.results.prefix(Self.maxCandidates))
             if !candidates.isEmpty { sendCurrent() }
         }
-        .onDisappear { runTask?.cancel() }
+        .onDisappear { stopScanning() }
         .onChange(of: autoAdvance) { scheduleAutoAdvance() }
     }
 
@@ -117,15 +120,17 @@ struct PowerScanSheet: View {
         guard candidates.indices.contains(index) else { return }
         let entry = candidates[index]
         runTask?.cancel()
+        advanceTask?.cancel()
         current = nil
         status = "Downloading…"
         runTask = Task {
-            guard let result = await database.loadPreview(entry) else {
+            let result = await database.loadPreview(entry)
+            guard !Task.isCancelled else { return }
+            guard let result else {
                 status = "Couldn’t download this remote."
                 scheduleAutoAdvance()
                 return
             }
-            guard !Task.isCancelled else { return }
             current = result
             guard let power = result.remote.powerButton else {
                 status = "This remote has no power button."
@@ -138,6 +143,7 @@ struct PowerScanSheet: View {
                 guard !Task.isCancelled else { return }
                 status = "Sent “\(power.displayName)”. Did your device respond?"
             } catch {
+                guard !Task.isCancelled else { return }
                 status = error.localizedDescription
             }
             scheduleAutoAdvance()
@@ -145,20 +151,26 @@ struct PowerScanSheet: View {
     }
 
     private func scheduleAutoAdvance() {
+        advanceTask?.cancel()
         guard autoAdvance, index < candidates.count - 1 else { return }
         let delay = interval
-        let expectedIndex = index
-        Task {
+        advanceTask = Task {
             try? await Task.sleep(for: .seconds(delay))
-            guard autoAdvance, index == expectedIndex else { return }
+            guard !Task.isCancelled, autoAdvance else { return }
             step(1)
         }
     }
 
+    /// Stops sending: no further codes once the sheet is closed.
+    private func stopScanning() {
+        autoAdvance = false
+        advanceTask?.cancel()
+        runTask?.cancel()
+    }
+
     private func importCurrent() {
         guard let current else { return }
-        autoAdvance = false
-        runTask?.cancel()
+        stopScanning()
         let added = library.add(current.remote)
         navigation.open(added)
         dismiss()
