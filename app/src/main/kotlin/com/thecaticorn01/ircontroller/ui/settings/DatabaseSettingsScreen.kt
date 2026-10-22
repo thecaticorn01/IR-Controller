@@ -49,6 +49,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -70,6 +71,7 @@ import com.thecaticorn01.ircontroller.ui.LocalAppController
 import com.thecaticorn01.ircontroller.ui.components.SectionHeader
 import com.thecaticorn01.ircontroller.core.database.DatabaseFormat
 import com.thecaticorn01.ircontroller.core.database.DatabaseSource
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Manage online database sources and the optional GitHub token. */
@@ -85,6 +87,13 @@ fun DatabaseSettingsScreen(onBack: () -> Unit) {
     var token by remember { mutableStateOf(container.secrets.read(SecretStore.GITHUB_TOKEN) ?: "") }
     var showToken by remember { mutableStateOf(false) }
     val isLoading = states.values.any { it is LoadState.Loading }
+    // Keeps "Updated … ago" current while the screen is open.
+    val now by produceState(System.currentTimeMillis()) {
+        while (true) {
+            delay(30_000)
+            value = System.currentTimeMillis()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -106,7 +115,7 @@ fun DatabaseSettingsScreen(onBack: () -> Unit) {
                         supportingContent = {
                             Column {
                                 Text(source.location, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-                                Text(status(source, states[source.id]), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                Text(status(source, states[source.id], now), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                                 if (source.summary.isNotEmpty()) Text(source.summary, style = MaterialTheme.typography.bodySmall)
                             }
                         },
@@ -191,12 +200,17 @@ fun DatabaseSettingsScreen(onBack: () -> Unit) {
     if (showAdd) AddSourceDialog(onDismiss = { showAdd = false })
 }
 
-private fun status(source: DatabaseSource, state: LoadState?): String = when (state) {
+private fun status(source: DatabaseSource, state: LoadState?, now: Long): String = when (state) {
     null -> if (source.isEnabled) "Not downloaded yet" else "Off"
     LoadState.Loading -> "Downloading index…"
-    is LoadState.Loaded -> "Updated " + DateUtils.getRelativeTimeSpanString(state.fetchedAtMillis, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
+    is LoadState.Loaded -> "Updated " + updatedAgo(state.fetchedAtMillis, now)
     is LoadState.Failed -> "Failed: ${state.message}"
 }
+
+/** "just now" for the first minute, where DateUtils would say "0 minutes ago"; then "5 minutes ago", "yesterday", … */
+internal fun updatedAgo(fetchedAtMillis: Long, now: Long): CharSequence =
+    if (now - fetchedAtMillis < DateUtils.MINUTE_IN_MILLIS) "just now"
+    else DateUtils.getRelativeTimeSpanString(fetchedAtMillis, now, DateUtils.MINUTE_IN_MILLIS)
 
 /** Adds any GitHub repository of Flipper `.ir` or IRDB-style `.csv` files. */
 @Composable

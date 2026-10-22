@@ -107,11 +107,12 @@ import java.io.File
 @Serializable data object SettingsRoute
 @Serializable data object DatabaseSettingsRoute
 
-enum class Tab(val label: String, val icon: ImageVector, val selectedIcon: ImageVector, val graph: Any) {
-    REMOTES("Remotes", Icons.Outlined.SettingsRemote, Icons.Rounded.SettingsRemote, RemotesGraph),
-    BROWSE("Browse", Icons.Outlined.Explore, Icons.Rounded.Explore, BrowseGraph),
-    LEARN("Learn", Icons.Outlined.WifiTethering, Icons.Rounded.WifiTethering, LearnGraph),
-    SETTINGS("Settings", Icons.Outlined.Settings, Icons.Rounded.Settings, SettingsGraph),
+/** A top-level tab: its navigation graph and the graph's first screen. */
+enum class Tab(val label: String, val icon: ImageVector, val selectedIcon: ImageVector, val graph: Any, val start: Any) {
+    REMOTES("Remotes", Icons.Outlined.SettingsRemote, Icons.Rounded.SettingsRemote, RemotesGraph, LibraryRoute),
+    BROWSE("Browse", Icons.Outlined.Explore, Icons.Rounded.Explore, BrowseGraph, BrowseRoute),
+    LEARN("Learn", Icons.Outlined.WifiTethering, Icons.Rounded.WifiTethering, LearnGraph, LearnRoute),
+    SETTINGS("Settings", Icons.Outlined.Settings, Icons.Rounded.Settings, SettingsGraph, SettingsRoute),
 }
 
 /** Which remote the new/edit details dialog is for. */
@@ -354,15 +355,10 @@ fun App(incoming: Flow<IncomingAction>) {
                             selected = tab == selectedTab,
                             onClick = {
                                 if (tab == selectedTab) {
-                                    // Re-selecting a tab returns to its first screen.
-                                    navController.popBackStack(tab.graph, inclusive = false)
-                                    val start = when (tab) {
-                                        Tab.REMOTES -> LibraryRoute
-                                        Tab.BROWSE -> BrowseRoute
-                                        Tab.LEARN -> LearnRoute
-                                        Tab.SETTINGS -> SettingsRoute
-                                    }
-                                    navController.popBackStack(start, inclusive = false)
+                                    // Re-selecting a tab returns to its first screen. Pop only down to
+                                    // that screen: popping to the tab's graph would remove the screen
+                                    // itself, leaving an empty tab or falling through to another one.
+                                    if (!navController.popBackStack(tab.start, inclusive = false)) controller.openTab(tab)
                                 } else {
                                     controller.openTab(tab)
                                 }
