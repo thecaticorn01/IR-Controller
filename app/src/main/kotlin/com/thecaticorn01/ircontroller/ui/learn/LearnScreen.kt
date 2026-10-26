@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FastForward
@@ -35,6 +36,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
@@ -44,7 +47,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -90,7 +92,16 @@ class LearnViewModel(private val container: AppContainer) : ViewModel() {
     var name by mutableStateOf("")
     var brand by mutableStateOf("")
     var model by mutableStateOf("")
-    var category by mutableStateOf(DeviceCategory.TV)
+    var category: DeviceCategory
+        get() = selectedCategory
+        set(value) {
+            // A new device type brings a new set of suggestions.
+            if (value != selectedCategory) omittedSuggestions = emptySet()
+            selectedCategory = value
+        }
+    private var selectedCategory by mutableStateOf(DeviceCategory.TV)
+    /** Suggested buttons the user has left out of the learning flow. */
+    var omittedSuggestions by mutableStateOf(setOf<String>()); private set
     var slots by mutableStateOf(listOf<Slot>()); private set
     var currentSlotId by mutableStateOf<String?>(null); private set
     var captured by mutableStateOf<IRSignal?>(null)
@@ -99,8 +110,12 @@ class LearnViewModel(private val container: AppContainer) : ViewModel() {
 
     val learnedCount: Int get() = slots.count { it.signal != null }
 
+    fun toggleSuggestion(name: String) {
+        omittedSuggestions = if (name in omittedSuggestions) omittedSuggestions - name else omittedSuggestions + name
+    }
+
     fun begin() {
-        slots = LearningTemplate.buttonNames(category).map { Slot(name = it) }
+        slots = LearningTemplate.buttonNames(category).filterNot { it in omittedSuggestions }.map { Slot(name = it) }
         select(slots.firstOrNull()?.id)
         learning = true
     }
@@ -160,6 +175,7 @@ class LearnViewModel(private val container: AppContainer) : ViewModel() {
     fun reset() {
         learning = false
         slots = emptyList()
+        omittedSuggestions = emptySet()
         select(null)
         name = ""
         brand = ""
@@ -272,13 +288,21 @@ private fun Setup(vm: LearnViewModel) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Suggested buttons", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "You can skip any of these and add your own as you go.",
+                    "Tap a button to leave it out if your remote doesn’t have it. You can add your own as you go.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (name in LearningTemplate.buttonNames(vm.category)) {
-                        SuggestionChip(onClick = {}, label = { Text(name) })
+                        val included = name !in vm.omittedSuggestions
+                        FilterChip(
+                            selected = included,
+                            onClick = { vm.toggleSuggestion(name) },
+                            label = { Text(name) },
+                            leadingIcon = {
+                                Icon(if (included) Icons.Rounded.Check else Icons.Rounded.Add, null, Modifier.size(FilterChipDefaults.IconSize))
+                            },
+                        )
                     }
                 }
             }
