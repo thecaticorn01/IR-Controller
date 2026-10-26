@@ -29,6 +29,8 @@ struct LearnRemoteView: View {
     @State private var entered: IRSignal?
     @State private var newSlotName = ""
     @State private var confirmDiscard = false
+    /// Suggested buttons the user has left out of the learning flow.
+    @State private var omittedSuggestions: Set<String> = []
 
     var body: some View {
         Group {
@@ -78,20 +80,23 @@ struct LearnRemoteView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Suggested buttons")
                         .font(.headline)
-                    Text("You can skip any of these and add your own as you go.")
+                    Text("Click a button to leave it out if your remote doesn’t have it. You can add your own as you go.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     FlowLayout(spacing: 6) {
                         ForEach(LearningTemplate.buttonNames(for: category), id: \.self) { name in
-                            Text(name)
-                                .font(.callout)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
-                                .glassEffect(.regular, in: .capsule)
+                            let included = !omittedSuggestions.contains(name)
+                            Toggle(isOn: suggestionBinding(name)) {
+                                Label(name, systemImage: included ? "checkmark" : "plus")
+                            }
+                            .toggleStyle(.button)
+                            .buttonStyle(.glass)
+                            .help(included ? "Leave out “\(name)”" : "Learn “\(name)”")
                         }
                     }
                 }
                 .frame(maxWidth: 520, alignment: .leading)
+                .onChange(of: category) { omittedSuggestions = [] }
 
                 if !blaster.state.isReady {
                     Label("Connect your IR blaster to capture codes. You can still enter codes manually.", systemImage: "cable.connector.slash")
@@ -255,8 +260,18 @@ struct LearnRemoteView: View {
 
     // MARK: Actions
 
+    private func suggestionBinding(_ name: String) -> Binding<Bool> {
+        Binding {
+            !omittedSuggestions.contains(name)
+        } set: { included in
+            if included { omittedSuggestions.remove(name) } else { omittedSuggestions.insert(name) }
+        }
+    }
+
     private func begin() {
-        slots = LearningTemplate.buttonNames(for: category).map { Slot(name: $0) }
+        slots = LearningTemplate.buttonNames(for: category)
+            .filter { !omittedSuggestions.contains($0) }
+            .map { Slot(name: $0) }
         currentSlotID = slots.first?.id
         step = .learning
     }
@@ -292,6 +307,7 @@ struct LearnRemoteView: View {
     private func reset() {
         step = .setup
         slots = []
+        omittedSuggestions = []
         currentSlotID = nil
         captured = nil
         entered = nil
